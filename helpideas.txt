@@ -1,0 +1,232 @@
+TULOY: IDEAS
+============
+
+Things we could add, grouped by what they'd fix. Each has a rough size
+(S = an hour or two, M = a day, L = several days) and a note on why it
+might be worth it. Nothing here is built yet. The list at the bottom says
+what was just added, so we don't suggest it twice.
+
+Pick by the stars: *** = would help most people right away.
+
+
+1. GETTING STARTED AND HELP
+---------------------------
+
+*** Sign in without leaving Tuloy (M)
+    Today "Sign In…" opens Terminal. Tuloy could run Claude Code's sign-in
+    itself and just open the browser page, so there's no Terminal at all.
+    Needs testing: the sign-in may want a real terminal.
+
+*** A "what just happened" line after every action (S)
+    After Ping Now, Pause, or changing the schedule, show one sentence in
+    the window: "Pinged. Fresh window at 4:43 PM." No guessing whether a
+    click did anything.
+
+**  Help buttons next to things (S)
+    A small (?) beside each setting that opens the matching Help answer,
+    instead of making people go and look for it.
+
+**  Search in Help (S)
+    A search box over the questions. Worth it once there are 15 or more.
+
+**  A short tour on first open (M)
+    Three coach marks pointing at the menu bar icon, Ping Now and the mini
+    window. For people who skip the welcome.
+
+*   A "Copy details for support" button (S)
+    Copies Claude Code's version, the last five pings and the current
+    settings (never the login) so someone asking for help can paste them.
+
+*   Help in Filipino (M)
+    The name is Filipino. A Tagalog translation of the app would suit it.
+
+
+2. CONNECTION
+-------------
+
+*** Usage for desktop-app and claude.ai users (M-L)
+    Live usage only updates from Claude Code in Terminal. People who use
+    the Claude desktop app or the website see a countdown but rarely a
+    percentage. Look for another honest source: for example, asking Claude
+    Code for its usage report every so often, which costs no tokens if the
+    command works without a conversation. Needs a real signed-in test.
+
+**  Tell people when Claude Code updated (S)
+    Remember Claude Code's version at each good ping. If pings start
+    failing right after an update, say so: "This began after Claude Code
+    updated to 2.2.0."
+
+**  A health check on a timer (S)
+    Run the free sign-in check each morning an hour before the ping, and
+    notify if it fails, so there's time to fix it before the ping matters.
+
+**  One-click install of Claude Code (M)
+    A button that runs the official installer and shows its progress, for
+    people who have never opened Terminal.
+
+*   Choose which Claude Code to use (S)
+    For people with more than one installed: pick the path in Connection.
+
+
+3. WINDOWS AND THE MENU BAR
+---------------------------
+
+*** A real popover from the menu bar icon (M)
+    Replace the plain menu with a small panel like the mini window: the
+    ring, the countdown, and big Ping Now / Pause buttons, right under the
+    icon.
+
+**  A Dock icon while a window is open (S-M)
+    Tuloy has no Dock icon, so its windows can get lost behind others.
+    Show one while the main window is open and hide it again after.
+
+**  Mini window options (S)
+    Sizes (tiny ring only, or the current one), see-through when the mouse
+    isn't over it, and "stay on this desktop only".
+
+**  A desktop widget (L)
+    The ring and countdown as a macOS widget, on the desktop or in
+    Notification Centre. Needs a widget extension, so a real Xcode project.
+
+*   A keyboard shortcut for Ping Now (S)
+    A system-wide shortcut, chosen in Preferences.
+
+*   Themes and an accent colour (M)
+    Goes with the logo work: a Tuloy colour, light and dark, and maybe two
+    or three ring styles.
+
+
+4. SCHEDULE
+-----------
+
+*** Suggest a fresh time (M)
+    "You usually start around 9:10. Try a fresh window at 11:00?" Worked
+    out from when your windows actually open.
+
+**  Different times on different days (M)
+    An early start on weekdays, a late one on Saturday.
+
+**  Skip a day (S)
+    "Skip tomorrow" or "Skip until Monday", for holidays, without changing
+    the schedule.
+
+**  Whole hours only, if Claude rounds to the hour (S)
+    If real pings show that windows start on the hour, make the time
+    picker offer hours only, so what you pick is what you get.
+
+*   Calendar awareness (L)
+    Don't burn a window on a day your calendar says you're out.
+
+*   Pause until (S)
+    "Pause for 2 hours" or "until tomorrow", instead of a pause you have
+    to remember to undo.
+
+
+5. KNOWING YOUR USAGE
+---------------------
+
+*** A history chart (M)
+    A week of windows as bars: when each opened, how full it got. Shows
+    whether the schedule fits how you really work.
+
+**  A "you're nearly out" notification (S)
+    At 80% and 95% of a window, with the time left until the reset.
+
+**  A weekly limit forecast (M)
+    "At this pace you'll use your week by Thursday afternoon."
+
+**  Export pings and usage (S)
+    A CSV file of everything Tuloy has recorded, for people who like
+    spreadsheets.
+
+*   Token count per day and week (S)
+    Add up what the pings themselves cost, to show it really is tiny.
+
+
+6. NOTIFICATIONS
+----------------
+
+**  A heads-up before the reset (S)
+    "Fresh window in 10 minutes", for people who want to save a big task
+    for the fresh allowance.
+
+**  Quiet hours (S)
+    No notifications at night, even if a window resets then.
+
+*   Notification actions (S)
+    "Ping Now" and "Pause" buttons right on the notification.
+
+
+7. WHEN THE MAC IS ASLEEP
+-------------------------
+
+*** A ready-made iPhone Shortcut (S)
+    A link in Help that adds the automation in one tap, instead of five
+    steps. (We decided the phone, not waking the Mac, is the answer here.)
+
+**  A QR code in Help (S)
+    Point the phone at the screen to get that Shortcut.
+
+*   "Your Mac was asleep at ping time" reminder (S)
+    If the scheduled ping is missed three days running, suggest the iPhone
+    Shortcut.
+
+
+8. TRUST AND SAFETY
+-------------------
+
+**  A "what Tuloy has done" log (S)
+    A plain list in Help: every ping, every file it changed and when.
+    Mostly there already as Recent pings; this adds the file changes.
+
+**  Show the exact command before the first ping (S)
+    In the welcome: "This is everything Tuloy will ever send", with the
+    command, before anyone presses Send Test Ping.
+
+*   Uninstall button (S)
+    Disconnect live usage, remove ~/.tuloy, turn off launch at login, and
+    say what's left to drag to the Bin.
+
+
+9. SHARING TULOY WITH OTHER PEOPLE
+----------------------------------
+
+*** Sign and notarise the app (M)
+    With the Apple Developer account, so other Macs open it without a
+    warning. Needed before giving it to anyone.
+
+**  A download page and automatic updates (M-L)
+    A small site with the app, and "Check for Updates" in Preferences.
+
+**  A Homebrew install (S, after signing)
+    brew install --cask tuloy.
+
+*   An app icon and menu bar glyph (M)
+    Planned already, with the theme.
+
+
+10. NICE TO HAVE
+----------------
+
+*   A streak (S)
+    "12 days of fresh windows in a row." Light encouragement.
+
+*   A message other than "hi" (S)
+    Let people choose the ping text. Purely for fun: it costs the same.
+
+*   More than one account (L)
+    A work plan and a personal plan, each with its own schedule.
+
+
+JUST ADDED (so not ideas any more)
+----------------------------------
+
+- A main window with Home, Schedule, Connection, Preferences and Help.
+- A welcome window the first time you open Tuloy.
+- A mini window that floats above everything.
+- A Connection screen that checks each step, signs in through Terminal
+  in one click, and sends a test ping.
+- A step-by-step guide window with every command, to keep beside Terminal.
+- Help: the idea, where everything is, what the icon means, iPhone steps,
+  and eight common questions.
+- Demo mode (make demo) for trying all of it with made-up data.

@@ -1,0 +1,27 @@
+# Optional: ping Claude from GitHub Actions, so it works while your Mac is closed.
+#
+# 1. Make a PRIVATE repo and put this file at .github/workflows/cloud-ping.yml
+# 2. On your Mac, run `claude setup-token` and save the token as a repo secret
+#    named CLAUDE_CODE_OAUTH_TOKEN (Settings → Secrets and variables → Actions)
+# 3. Set your ping time below. GitHub uses UTC and can run a few minutes late.
+
+name: Tuloy cloud ping
+
+on:
+  schedule:
+    - cron: "0 10 * * 1-5"   # 10:00 UTC = 6:00 AM Eastern in summer (5:00 AM in winter), weekdays
+  workflow_dispatch:          # adds a "Run workflow" button for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install Claude Code
+        run: curl -fsSL https://claude.ai/install.sh | bash
+
+      - name: Ping
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          "$HOME/.local/bin/claude" -p "Reply with only the word ok." --model haiku --tools ""

@@ -1,0 +1,1291 @@
+TULOY: BRAINSTORM
+=================
+
+Planning only. Nothing here is built. For each chosen suggestion: what
+it's for, the ways we could do it, the route I'd take, the steps, and how we
+prove that route is the right one before and after building it.
+
+Numbers in brackets like [14] are the item numbers from suggestions.txt.
+
+
+CONTENTS
+--------
+
+  Part 1  The three tests every plan has to pass
+  Part 2  What we know now (real pings, and Claude Code's own docs)
+  Part 3  Five experiments to run before writing any code
+  Part 4  The order to build in, and why
+  Part 5  The plans, one per suggestion
+  Part 6  Decisions that are yours to make
+  Part 7  What could go wrong
+
+
+==========================================================================
+PART 1. THE THREE TESTS
+==========================================================================
+
+"Efficient, easy, reliable" only helps if we can measure it. So:
+
+EFFICIENT means
+  - Tokens spent by Tuloy in a day. Today: 350 per ping, 3 to 4 pings a day,
+    plus any you send by hand to refresh the number.
+  - Programs Tuloy starts in an hour. Every ping or check starts the claude
+    program. Fewer is better.
+  - How often Tuloy wakes up when nothing can happen.
+
+EASY means
+  - Clicks to do the common thing (see usage, ping now, fix a problem).
+  - A newcomer can do it without being told. Test: hand it to someone who
+    has never seen it and watch, saying nothing.
+  - No word they have to look up.
+
+RELIABLE means
+  - Every situation has an automatic test that fails if we break it.
+  - When Tuloy doesn't know something, it says so. It never shows a guess
+    as a fact.
+  - A Claude Code update can't silently break it.
+
+HOW WE DECIDE A ROUTE IS BEST
+  For every plan below:
+    1. List the real options, not just the first idea.
+    2. Name what we don't know.
+    3. Find the cheapest experiment that settles it, and run that first.
+    4. Pick a number that says whether it worked.
+    5. Write "done when" before starting.
+  If an experiment disagrees with the plan, the plan changes, not the
+  experiment.
+
+
+==========================================================================
+PART 2. WHAT WE KNOW NOW
+==========================================================================
+
+FROM YOUR REAL PINGS (read from Tuloy's saved history, evening of 6 Oct)
+
+  Sent        Kind         Reset reported   Window began   Tokens
+  12:57 AM    by you       4:40 AM          11:40 PM       350
+   5:00 AM    scheduled    10:00 AM          5:00 AM       350
+  10:01 AM    keep going    3:00 PM         10:00 AM       350
+   3:01 PM    keep going    8:00 PM          3:00 PM       350
+   7:16 PM    by you        8:00 PM          3:00 PM       350
+   7:19 PM    by you        8:00 PM          3:00 PM       350
+
+  What that tells us:
+
+  a. A ping always costs 350 tokens. Same every time.
+
+  b. Every ping reports the true usage for the window and the week.
+
+  c. CORRECTION to suggestions.txt. I wrote that windows round "to 10
+     minutes or the hour". The 4:40 AM reset rules out the hour: a window
+     that began at 11:40 PM is not on the hour. Windows begin on a 10-minute
+     mark (5 or 20 would also fit these six; 10 is the likeliest).
+
+  d. Keep-going pings go out about 75 seconds after a reset and still land
+     in the right window (10:01:12 counted as 10:00). Good: no time lost.
+
+  e. You pinged twice by hand at 7:16 and 7:19 PM. Neither could start a
+     window; one was already open. That was 700 tokens spent only to see a
+     current number. This is the strongest evidence for [1] and [2].
+
+  f. The scheduled and keep-going pings are all sent a few seconds past a
+     10-minute mark, so they can never tell us whether the rounding is 5, 10
+     or 20 minutes. A week of normal pings will NOT settle it. It needs one
+     deliberate ping at an odd minute (experiment E2).
+
+FROM CLAUDE CODE'S DOCUMENTATION (looked up for this plan)
+
+  g. /usage "shows session cost, plan usage limits, and activity stats".
+     Sent through "claude -p", its output comes back as Claude's reply.
+
+  h. A result line can carry "local_command": the name of a command that
+     finished "without entering the agent loop", meaning without asking the
+     model. If /usage reports that, it cost no tokens. Not yet seen for
+     real.
+
+  i. /usage gets plan limits from a usage service that is itself rate
+     limited. When that fails, it shows the last numbers this Mac loaded in
+     the past 60 minutes, with a "Showing last-known usage" note.
+     So: ask gently, and watch for that note.
+
+  j. "Desktop and CLI read the same configuration files" and "Hooks ...
+     defined in settings apply to both". A hook is a small command Claude
+     Code runs at set moments, such as when a reply finishes. So Claude Code
+     can tell Tuloy "Claude was just used", in Terminal AND in the desktop
+     app's Code tab. This matters a lot for [1].
+
+  k. The status line (what live usage uses) is a Terminal feature. Nothing
+     in the docs says the desktop app runs it.
+
+  l. Sign-in is interactive: it may ask you to press a key to copy a link,
+     or to paste a code. It keeps the login in the macOS Keychain. That
+     makes "sign in without Terminal" [34] risky.
+
+
+==========================================================================
+PART 3. FIVE EXPERIMENTS BEFORE ANY CODE
+==========================================================================
+
+Each takes minutes and can change a plan. You run them in Terminal (your
+Terminal is signed in; my session isn't, and I shouldn't spend your tokens
+finding out).
+
+E1. DOES /usage COST NOTHING?                            decides [1] [83]
+
+    cd ~/.tuloy
+    time claude -p "/usage" --output-format json
+
+    Look for:
+      - "result": does it contain your percentages and reset times?
+      - "usage" / "total_cost_usd": are the token counts zero?
+      - "local_command": is it there? (means no model was asked)
+      - "num_turns": 0 or 1?
+      - how long it took
+    Then compare its number with Claude's own usage page. Same?
+
+    Run it again as:
+      claude -p "/usage" --output-format stream-json --verbose
+    and look for a line with "rate_limit_event". If /usage produces one,
+    Tuloy can read it with the code it already has and never has to read
+    human text. That would be the best possible outcome.
+
+    Outcomes:
+      A  zero tokens, numbers present     -> build [1] on it
+      B  numbers present, costs tokens    -> no better than a ping; go to
+                                             the fallback in [1]
+      C  doesn't work this way            -> fallback in [1]
+
+E2. IS THE ROUNDING 5, 10 OR 20 MINUTES?                 decides [5]
+
+    Next time no window is open and you'd start one anyway, choose Ping Now
+    at a minute ending in 5 to 9 (say 2:17). Note the reset Tuloy reports.
+      reset 7:10  -> 10-minute marks  (expected)
+      reset 7:15  -> 5-minute marks
+      reset 7:00  -> 20-minute marks or the hour after all
+    One ping, 350 tokens, one answer.
+
+E3. DO HOOKS RUN IN THE DESKTOP APP?                     decides [1] [8]
+
+    Add this to ~/.claude/settings.json by hand (I can give the exact text
+    when we get there):
+      a "Stop" hook whose command is:  touch ~/.tuloy/activity
+    Send one message in the desktop app's Code tab, then:
+      ls -l ~/.tuloy/activity
+    If the file's time is "just now", Claude Code can tell Tuloy the moment
+    you use it. Try the same from Terminal, and from a normal chat (which I
+    expect will NOT do it).
+
+E4. DOES A POPOVER BEHAVE?                               decides [62]
+
+    A one-hour throwaway build in demo mode that swaps the menu for a
+    panel. Three questions only:
+      1. Can the panel close itself when you click "Open Tuloy"?
+      2. Do the Tuloy windows still open from it?
+      3. Does it resize cleanly when a problem line appears?
+    Thrown away afterwards whatever the answers.
+
+E5. CAN TULOY RUN THE SIGN-IN ITSELF?    (optional)      decides [34]
+
+    Only if we still want [34] after [33] is in. Run the sign-in with no
+    terminal attached and see whether it opens the browser and finishes, or
+    stalls waiting for a key press.
+
+
+==========================================================================
+PART 4. THE ORDER TO BUILD IN
+==========================================================================
+
+  STAGE 0  Experiments E1 to E4.                   No code kept.
+
+  STAGE 1  The foundation.
+           [145] Test the brain
+           [14]  Stop retrying when only you can fix it
+           [15]  Remember which ping flags work
+           [16]  Remember where claude is
+           [47]  Say why the next ping is when it is
+           [26]  Say when Claude Code updated
+
+           Why first: every later item changes what Tuloy does after a ping
+           or a check. Right now that part has no tests. Building on it
+           untested is how reliable things become unreliable.
+
+  STAGE 2  The truth.
+           [1]   Check usage without spending tokens
+           [2]   Show how old the reading is
+           [8]   Notice windows you opened yourself
+           [7]   Say when the plan and the truth differ
+           [45]  A "what just happened" line
+           [83]  A "nearly out" notification
+           [25]  A morning health check
+
+           Why second: the screens in stage 3 are only as good as the
+           numbers they show.
+
+  STAGE 3  The face.
+           [62]  A proper popover               (with branding.txt)
+           [46]  Today's real windows on Home
+           [63]  A Dock icon while a window is open
+           [5]   Step the time picker
+           [33]  Notice a finished sign-in
+           [35]  Say the surprising thing first
+           [121] Say plainly what Tuloy is
+
+  STAGE 4  Learning from you.
+           [74]  Suggest a fresh time    (needs two weeks of stage 2 data)
+           [34]  Sign in without Terminal   (only if E5 says it's solid)
+
+  Each stage ends with: all tests pass, a demo-mode walk-through, and a day
+  of real use before the next stage starts.
+
+
+==========================================================================
+PART 5. THE PLANS
+==========================================================================
+
+
+--------------------------------------------------------------------------
+[145] TEST THE BRAIN, NOT JUST THE PARTS                         STAGE 1
+--------------------------------------------------------------------------
+WHY
+  The schedule, the decision and the readers each have tests. What Tuloy
+  does with a ping's result (save it, retry, rest, plan the next one, notify)
+  has none. That is exactly the part every other item here changes.
+
+TODAY
+  All of it lives in AppModel, wired straight to the real clock, the real
+  claude program, real saved settings and real notifications. A test can't
+  get in between.
+
+OPTIONS
+  a. Test through the screen (click buttons, read text). Slow and brittle.
+  b. Leave it and test by hand. That's how the 8 pointless retries shipped.
+  c. Give the brain four sockets it plugs into, and plug in pretend ones
+     for tests.
+
+RECOMMENDED: c
+  The four sockets:
+    Clock      "what time is it?"        real: the Mac    test: we set it
+    Claude     "ping" and "check"        real: claude     test: scripted
+    Storage    "save" and "load"         real: prefs      test: in memory
+    Notices    "notify"                  real: macOS      test: a list
+  Move the ping-handling out of AppModel into a small piece with no screen
+  code (call it the Engine). AppModel keeps the settings and feeds the
+  screens.
+
+STEPS
+  1. Write the scenarios below as plain sentences first. Agree them.
+  2. Add the four sockets with the real ones plugged in. Behaviour must not
+     change; all 97 current tests still pass.
+  3. Move ping handling into the Engine. Still no behaviour change.
+  4. Write one test per scenario using the pretend sockets.
+  5. Only then start on [14].
+
+  Scenarios to cover (each becomes a test):
+     1. Scheduled ping works: window saved, next ping planned, history +1.
+     2. Ping works but reports no window: an estimate is saved, marked so.
+     3. Ping at the window limit: counted as delivered, 100%.
+     4. Week used up: rest until reset, no more pings, one history line.
+     5. Offline at ping time: no attempt; goes out when back online.
+     6. Ping fails, will fix itself: retries at 1, 2, 5, 15, 30 minutes.
+     7. Ping fails, needs you: ONE attempt, then silence          [14]
+     8. You sign in: one ping, within a minute                    [14]
+     9. Mac asleep at ping time, wakes 2 hours late: pings.
+    10. Wakes 6 hours late: skips, plans tomorrow.
+    11. A window is already open at ping time: waits, pings when it ends.
+    12. Keep going: pings at each reset until the stop time.
+    13. Ping Now while a scheduled ping is waiting: counts for both.
+    14. Pause, then resume: nothing sent late.
+    15. Schedule changed mid-day: plans again, hold cleared.
+    16. Lean ping fails "unknown option": plain used, and remembered [15]
+    17. Claude Code version changed, then failure: the message says so [26]
+
+CHECK IT'S THE BEST ROUTE
+  - Replay 5 October. Feed the Engine exactly what happened: signed out at
+    4:42 PM, keep going on. Today's code must reproduce the 8 automatic
+    tries (that proves the test sees what really happened). After [14] it
+    must show 1.
+  - Count: every "if" in the ping handling is reached by some test.
+  - The whole suite still runs in a couple of seconds.
+
+DONE WHEN
+  17 scenario tests pass with the real behaviour unchanged, and a mistake
+  deliberately put into the retry rule makes a test fail.
+
+
+--------------------------------------------------------------------------
+[14] STOP RETRYING WHEN ONLY YOU CAN FIX IT                      STAGE 1
+--------------------------------------------------------------------------
+WHY
+  Signed out, not installed, wrong account: no retry can succeed. On your
+  first day Tuloy tried 8 more times anyway. Each try starts the claude
+  program three times.
+
+TODAY
+  Every failure, whatever the cause, retries after 1, 2, 5, 15, then 30
+  minutes for as long as a ping is wanted.
+
+OPTIONS
+  a. Fewer retries for everything. Hurts the cases where retrying works.
+  b. Sort failures into "fixes itself" and "needs you". Retry the first,
+     wait for the second.
+  c. Never ping unless the sign-in check says ready. Sounds neat, but that
+     check has been wrong before (it said ready while a ping failed).
+
+RECOMMENDED: b, with the check as the "you've fixed it" signal
+
+  What happened                Retry by itself?        Try again when
+  -------------------------    --------------------    ----------------------
+  Claude Code not found        no                      the check finds it
+  Signed out                   no                      the check says signed in
+  API key, not your plan       no                      the check says plan
+  Signed in, ping refused      once, at the next       a ping works
+                               scheduled time
+  Claude Code too old          no                      its version changes
+  Offline                      waits for the network   it comes back
+  Took too long                yes: 1, 2, 5, 15, 30    -
+  Anything else                yes, 5 tries, then      -
+                               once an hour
+  Week used up                 no                      the week resets
+
+  While waiting on you, Tuloy runs the FREE sign-in check (no message
+  sent): every 5 minutes for the first hour, then every 30. Also at once
+  when you open a Tuloy window, when the sign-in script finishes [33], and
+  when the Mac wakes. Ping Now always works, whatever the state.
+
+STEPS
+  1. Give each failure a retry rule (the table), in one place.
+  2. Add a "waiting on you" state that the decision respects.
+  3. Add the gentle repeated check while in that state.
+  4. When the check passes: clear the state, ping once if one is wanted.
+  5. Home and the menu say "Waiting for you to sign in", not "retrying".
+
+CHECK IT'S THE BEST ROUTE
+  - Scenario tests 7 and 8 from [145].
+  - The 5 October replay: 8 automatic tries become 1.
+  - Count programs started in the first hour of waiting on you: today 18
+    (6 tries, 3 programs each); target 12 or fewer, all of them the free
+    check, and none that send a message.
+  - Check option c is really worse: write the test "check says ready, ping
+    refused" and confirm b still reports it and c would hide it.
+
+DONE WHEN
+  Signed out for a whole day costs one failed ping and one notification,
+  and signing in is followed by a working ping within a minute.
+
+NEEDS  [145]
+
+
+--------------------------------------------------------------------------
+[15] REMEMBER WHICH PING FLAGS WORK                              STAGE 1
+--------------------------------------------------------------------------
+WHY
+  A failed ping runs the small ("lean") command, then the plain one, then
+  the sign-in check: three programs for one failure. Your pings prove the
+  lean one works here.
+
+OPTIONS
+  a. Always lean, drop the plain fallback. Breaks on an old Claude Code.
+  b. Remember what last worked, together with Claude Code's version.
+  c. Work it out from the version number. We don't know which version
+     added each flag.
+
+RECOMMENDED: b
+  Save: which command last worked, and the Claude Code version it worked on.
+    - Lean has worked on this version: use lean only. Fall back to plain
+      only on a real "unknown option" error.
+    - Version changed: allow the fallback once more, then remember again.
+    - Plain is what works: use plain, and try lean again when the version
+      changes (it may have gained the flags).
+
+STEPS
+  1. Read Claude Code's version from each ping's first line (it's there).
+  2. Save "what worked" + version after every good ping.
+  3. Choose the command from that record.
+  4. Show it in a ping's details: "small ping, Claude Code 2.1.288".
+
+CHECK IT'S THE BEST ROUTE
+  - Scenario 16. Plus: lean worked, then sign-out. Count programs for that
+    failure: today 3, target 2 (the ping, and one check).
+  - The token count stays 350. If a Claude Code update pushes Tuloy onto
+    the plain command, the count will jump, and that jump is the alarm.
+
+DONE WHEN
+  A failed ping never runs a command already known not to be the problem.
+
+NEEDS  [145]
+
+
+--------------------------------------------------------------------------
+[16] REMEMBER WHERE CLAUDE IS                                    STAGE 1
+--------------------------------------------------------------------------
+WHY
+  Tuloy searches for the claude program before every ping and check. With
+  usage checks every few minutes [1], that search would run all day.
+
+RECOMMENDED
+  Find it once, keep the answer, and before each use make one cheap check
+  that the file is still there. Search again only if it isn't.
+
+STEPS
+  1. Keep the found path (in memory, and saved for the next start).
+  2. Before use: is it still a runnable file? If not, search again.
+  3. Show the path in Connection, as now.
+
+CHECK IT'S THE BEST ROUTE
+  - Test: found, then deleted, then installed somewhere else. Tuloy must
+    find the new one without a restart.
+  - Time 100 pretend checks before and after. The search is small, so the
+    win is modest; this is here because [1] multiplies it.
+
+DONE WHEN
+  The slow "ask the login shell" search runs at most once per start.
+
+
+--------------------------------------------------------------------------
+[26] SAY WHEN CLAUDE CODE UPDATED                                STAGE 1
+--------------------------------------------------------------------------
+WHY
+  Claude Code updates itself. Its docs already warn of a coming change that
+  would stop pings using your login. When that day comes, "sign in" would
+  be the wrong advice, and you'd have no way to know.
+
+RECOMMENDED
+  Remember the version at each good ping (the same record as [15]). When a
+  ping fails and the version is different from the last good one, add one
+  line to the problem:
+    "This started after Claude Code updated from 2.1.288 to 2.2.0."
+
+STEPS
+  1. Version comes free with each ping; save the last good one.
+  2. On failure, ask Claude Code its version (instant, free) and compare.
+  3. Add the line to the menu, Home, and the notification.
+  4. Put the version in "Copy details for support" later.
+
+CHECK IT'S THE BEST ROUTE
+  - Scenario 17.
+  - It must never claim an update caused a failure when the version is the
+    same. Test that too.
+
+DONE WHEN
+  The first failure after an update names both versions.
+
+NEEDS  [15]
+
+
+--------------------------------------------------------------------------
+[47] SAY WHY THE NEXT PING IS WHEN IT IS                         STAGE 1
+--------------------------------------------------------------------------
+WHY
+  "Next ping 8:01 PM" leaves you guessing why 8:01. The reason is the
+  thing that builds trust.
+
+TODAY
+  Tuloy decides "ping now or not" every 30 seconds. It never works out
+  "when next, and why" as one answer; the menu line is pieced together
+  separately and can disagree with what really happens.
+
+RECOMMENDED
+  One function, the Forecast: given everything Tuloy knows, it answers
+  "what happens next, when, and why". Every screen reads from it.
+
+    Scheduled                 "5:00 AM tomorrow: 5 hours before your
+                               10:00 fresh window"
+    Keep going                "8:01 PM: when this window ends"
+    Waiting for a window      "8:01 PM: a window is open until 8:00"
+    Retrying                  "in 4 min: the last try timed out"
+    Waiting on you            "after you sign in"
+    Paused                    "paused"
+    Resting                   "Wednesday 8:00 PM: when your week resets"
+    Nothing planned           "no days chosen"
+
+STEPS
+  1. Write the Forecast beside the Planner, from the same facts.
+  2. Test it against the Planner: wind a pretend clock forward to the
+     forecast time and check the Planner really does ping then.
+  3. Replace the menu's and Home's "next ping" text with it.
+  4. Reuse it for the "still to come" part of [46].
+
+CHECK IT'S THE BEST ROUTE
+  - The agreement test in step 2, across every scenario in [145]. The
+    forecast must never promise a ping the Planner won't send.
+  - Read each sentence to someone who doesn't know Tuloy. Do they get it?
+
+DONE WHEN
+  Every screen's "next ping" comes from one place, with a reason.
+
+NEEDS  [145]
+
+
+--------------------------------------------------------------------------
+[1] CHECK USAGE WITHOUT SPENDING TOKENS                          STAGE 2
+--------------------------------------------------------------------------
+WHY
+  The number is only as fresh as the last ping. A ping at the start of a
+  window reads 0% and nothing corrects it for five hours. You already
+  work around it by pinging by hand: 700 tokens last evening.
+
+TODAY
+  Usage arrives two ways: inside a ping's reply, and (Terminal only) from
+  the status line. Tuloy never asks.
+
+OPTIONS
+  a. Ask Claude Code's /usage on a timer.
+       + true number, wherever you use Claude
+       ? free only if experiment E1 says so
+       - its output may be text meant for people, which can change
+  b. Ping more often.
+       + works today
+       - 350 tokens each. Every 5 minutes is about 21,000 per window.
+         Against what you asked for.
+  c. Status line only.
+       + free and exact
+       - Terminal only. Useless in the desktop app.
+  d. Read Anthropic's usage data with your login.
+       - Tuloy would have to handle your login. It never does. No.
+  e. Read Claude Code's own private files.
+       - not documented, could change any day. No.
+  f. Have Claude Code TELL Tuloy when you use it (a hook), and check then.
+       + no checking at all while you're idle
+       + docs say hooks run in Terminal and the desktop app's Code tab
+       - doesn't see ordinary chat on claude.ai or the phone
+       - gives a signal, not a number; still needs a or b for the number
+
+RECOMMENDED: a + f together, with c kept for Terminal users
+  f says WHEN to look. a does the looking. A slow timer covers what f
+  can't see.
+
+  When Tuloy checks:
+    - About a minute after Claude Code says you used it, and no more often
+      than every 3 minutes.                         (needs E3)
+    - Otherwise, while a window is open: every 10 minutes, stretching to 20
+      if two checks in a row show no change.
+    - No window known, during your day: every 20 minutes, to catch a window
+      you opened yourself [8].
+    - When you open the popover or the Tuloy window, if the reading is
+      older than a minute.
+    - Never while the Mac sleeps or the screen is locked. Once on waking.
+  If Claude Code answers with "last-known usage" (its own stale copy), use
+  the age it states, and wait 15 minutes before asking again.
+
+  If E1 says /usage costs tokens or doesn't work (the fallback):
+    - Keep pings as the only source.
+    - [2] and a Refresh button that says "sends one ping: 350 tokens".
+    - Use the hook (f) only to mark the reading "probably out of date".
+    - Offer c to Terminal users.
+    That is a worse product, but an honest one.
+
+STEPS
+  0. E1 and E3. Stop here if E1 fails; switch to the fallback.
+  1. Save the real output of /usage from E1 as test material, including one
+     "last-known usage" example if we can get one.
+  2. Write the reader. If /usage produces a rate-limit line (E1's second
+     run), reuse the existing reader. If it's text, read only "N% used" and
+     the reset times, and give up cleanly on anything unexpected.
+  3. Add "check usage" as a third thing the Claude socket can do [145].
+  4. Add the checking rules above to the Engine, with tests on a pretend
+     clock.
+  5. Add the hook as one more consent step in Connection, next to live
+     usage: same promise (asks first, keeps a copy, can undo).
+  6. If three checks in a row can't be read: stop checking, say "Usage
+     can't be read right now" on Home, and try again after the next ping.
+  7. Count checks per day and show it beside the token total.
+
+CHECK IT'S THE BEST ROUTE
+  Before building
+    - E1: zero tokens, yes or no. This one result decides the route.
+    - E1 timing: if a check takes over 5 seconds, halve how often we ask.
+    - E3: does the hook fire in the desktop app?
+  After building
+    - Accuracy: five times in a day, compare Tuloy with Claude's own usage
+      page. Target: within 2 points, and never older than 10 minutes while
+      you're working.
+    - Cost: tokens spent by Tuloy in a day must equal pings x 350. Checks
+      must add zero.
+    - Load: checks per day. Rough target: under 60 on a working day, under
+      10 on a day you don't use Claude.
+    - Honesty: pull the network cable. The ring must dim and show its age,
+      not hold a confident old number.
+
+DONE WHEN
+  You never press Ping Now just to see your usage.
+
+NEEDS  [145] [16]. Decides [8] [83] [46] [74].
+
+
+--------------------------------------------------------------------------
+[2] SHOW HOW OLD THE READING IS                                  STAGE 2
+--------------------------------------------------------------------------
+WHY
+  "56% used" read at 7:19 looks identical at 7:21 and at 11:00. Even with
+  [1], checks can fail. An old number must look old.
+
+RECOMMENDED
+    Under 2 minutes         "just now"
+    2 to 15 minutes         "6 min ago"
+    Over 15 minutes         "as of 3:01 PM", and the ring fades to half
+    Window has reset        the number goes; show time only
+  The same wording on Home, the mini window, the popover and the menu bar
+  tooltip. In the menu bar itself: a fainter ring, no extra text.
+
+STEPS
+  1. One function turns "when Tuloy learned this" into those words.
+  2. Use it everywhere a percentage appears.
+  3. Add a small Refresh button beside it (free with [1]; honest about the
+     cost without).
+
+CHECK IT'S THE BEST ROUTE
+  - Tests at 0, 1, 2, 14, 16 minutes and just after a reset.
+  - Five-second test: show a screenshot with a faded ring to someone and
+    ask "is this number current?" They should say no.
+  - Can it be built before [1]? Yes, and it should be: it's small and it
+    makes today's staleness visible straight away.
+
+DONE WHEN
+  No screen shows a percentage without its age.
+
+
+--------------------------------------------------------------------------
+[8] NOTICE WINDOWS YOU OPENED YOURSELF                           STAGE 2
+--------------------------------------------------------------------------
+WHY
+  If you use Claude before the ping, a window opens and Tuloy keeps showing
+  the old plan until its own ping finds out. At 12:57 AM yours had been
+  open since 11:40 PM.
+
+RECOMMENDED
+  It falls out of [1]: a usage check that reports an open window Tuloy
+  didn't know about means you (or your phone) opened one. Take its reset
+  time, re-plan, and say so:
+    "A window opened at 9:10 AM. Fresh window at 2:10 PM."
+
+STEPS
+  1. When a check reports a window Tuloy didn't have, record it as
+     "opened by you".
+  2. The Forecast [47] re-plans by itself, since it reads the same facts.
+  3. Show the notice line [45], once.
+
+CHECK IT'S THE BEST ROUTE
+  - Test: no window known, a check reports one. Fresh time, forecast and
+    notice all update.
+  - Real: send a message before the scheduled ping; Tuloy should show the
+    real reset within its checking interval.
+
+DONE WHEN
+  "Fresh window at" is never the plan when a real window is open.
+
+NEEDS  [1]
+
+
+--------------------------------------------------------------------------
+[7] SAY WHEN THE PLAN AND THE TRUTH DIFFER                       STAGE 2
+--------------------------------------------------------------------------
+WHY
+  You ask for 10:00 and see 10:40. Without a reason that looks like a bug.
+
+RECOMMENDED
+  When today's real fresh time is more than 10 minutes from the one you
+  asked for, add one line saying why. Tuloy knows the reason at ping time:
+
+    A window was already open     "10:40, not 10:00: a window was already
+                                   running when Tuloy pinged."
+    The ping went out late        "1:02 PM, not 10:00: your Mac was asleep
+                                   at ping time."
+    Rounding                      "10:00, not 10:07: Claude starts windows
+                                   on 10-minute marks."
+
+STEPS
+  1. At each ping, record two facts: was it late, and had the window
+     already begun?
+  2. Work out the difference and the reason in one place.
+  3. Show it on Home under the fresh time, and in the popover.
+
+CHECK IT'S THE BEST ROUTE
+  - A test per reason, plus "no line when they agree".
+  - It must never guess: if neither fact explains it, say only "10:40,
+    not 10:00" with no reason.
+
+DONE WHEN
+  A fresh time you didn't ask for always comes with its reason.
+
+NEEDS  [145]. Better with [8].
+
+
+--------------------------------------------------------------------------
+[45] A "WHAT JUST HAPPENED" LINE AFTER EVERY ACTION              STAGE 2
+--------------------------------------------------------------------------
+WHY
+  You click Ping Now and the button flickers. Did it work? You shouldn't
+  have to look somewhere else to find out.
+
+OPTIONS
+  a. A pop-up alert.        Interrupts.
+  b. A notification.        Wrong place; you're looking at the app.
+  c. One line where you're already looking, that fades after a few
+     seconds.               Yes.
+
+RECOMMENDED: c
+    Ping worked              "Pinged. Fresh window at 8:00 PM."
+    Ping, window was open    "Pinged. Your window was already open; it
+                              resets at 8:00 PM."
+    Ping failed              "That ping didn't get through: <reason>."
+    Paused                   "Paused. No pings until you resume."
+    Resumed                  "Resumed. Next ping 5:00 AM tomorrow."
+    Schedule changed         "Saved. Next ping 5:00 AM tomorrow."
+    Usage refreshed          "Usage updated: 61%."
+    Connected                "Live usage connected."
+  Shown for 8 seconds, or until your next action. Also read out by
+  VoiceOver.
+
+STEPS
+  1. The Engine sets one "latest notice" (text, good or bad, time).
+  2. Home, the mini window and the popover each show it in a fixed spot.
+  3. A test for the wording of each case.
+
+CHECK IT'S THE BEST ROUTE
+  - Go through every button in the app. Each must produce a line.
+  - Second kind of ping matters most: "your window was already open" would
+    have told you last evening that the two pings couldn't start anything.
+  - It must not hide a lasting problem: errors that need you stay on
+    screen in their usual place after the line fades.
+
+DONE WHEN
+  No click in Tuloy is met with silence.
+
+NEEDS  [145] [47]
+
+
+--------------------------------------------------------------------------
+[83] A "NEARLY OUT" NOTIFICATION                                 STAGE 2
+--------------------------------------------------------------------------
+WHY
+  Finding out you've hit the limit mid-task is the worst moment to learn
+  it. A warning lets you wrap up, or wait for the reset.
+
+TODAY
+  Not possible to do well: readings are hours apart.
+
+RECOMMENDED
+  At 80% and 95% of the window:
+    "80% used. Fresh window at 8:00 PM, in 1 h 12 min."
+  And of the week, at 80% and 95%:
+    "Your week is 80% used. It resets Wednesday 8:00 PM."
+  Rules:
+    - Once per level per window, and once per level per week.
+    - Not if the reset is under 10 minutes away.
+    - Not if the reading is over 10 minutes old [2].
+    - A switch for each in Preferences.
+
+STEPS
+  1. Remember which levels have been announced for the current window and
+     week, so a restart can't repeat them.
+  2. Check on every new reading.
+  3. Two switches in Preferences; both on by default (your call, Part 6).
+
+CHECK IT'S THE BEST ROUTE
+  - Tests: 79 then 81 gives one notification; 81 then 82 gives none; a new
+    window starts the count again; a restart doesn't repeat.
+  - Demo mode's "Almost Out" scene shows what it looks like.
+  - Is 80/95 right? Claude Code itself starts warning near the limit. Run a
+    week, then ask: did the 80% one arrive early enough to act on, and was
+    the 95% one ever a surprise?
+
+DONE WHEN
+  You hear about 80% from Tuloy before you hear about 100% from Claude.
+
+NEEDS  [1] to be worth having. [2].
+
+
+--------------------------------------------------------------------------
+[25] A MORNING HEALTH CHECK                                      STAGE 2
+--------------------------------------------------------------------------
+WHY
+  If Claude Code signed itself out overnight, today you find out when the
+  5:00 AM ping fails, and you find out at 9:00.
+
+RECOMMENDED
+  An hour before each scheduled ping (or on waking, if that's later), run
+  the free sign-in check. If it fails, notify once:
+    "Claude Code is signed out. Sign in before 5:00 AM to keep your 10:00
+     fresh window."
+  If it passes, do nothing and say nothing.
+
+STEPS
+  1. Add "health check due" to the Forecast [47].
+  2. Reuse the check and the "waiting on you" state from [14].
+  3. At most one such notification a day.
+
+CHECK IT'S THE BEST ROUTE
+  - Honest limit: the free check only confirms a login is stored. It can't
+    promise the login still works. So this catches "signed out", not
+    everything. Say that in Help rather than oversell it.
+  - Is an hour right? If you're asleep at 4:00 AM the warning waits till
+    morning anyway. A second check the evening before (at your stop time)
+    might be the more useful one. Try both for a week and see which you
+    actually saw in time.
+
+DONE WHEN
+  A sign-out is reported before the ping it would have broken.
+
+NEEDS  [14]
+
+
+--------------------------------------------------------------------------
+[62] A PROPER POPOVER UNDER THE MENU BAR ICON                    STAGE 3
+--------------------------------------------------------------------------
+WHY
+  The menu is a list of grey text. You had to hunt for Ping Now. The mini
+  window already shows what a good small panel looks like.
+
+TODAY
+  Clicking the icon opens a standard menu. Menus can only hold text and
+  plain items: no ring, no big buttons.
+
+OPTIONS
+  a. Apple's ready-made panel style for menu bar apps.
+       + a few lines to switch on; the panel is ordinary Tuloy screen code
+       + keeps the piece that opens Tuloy's windows working as it does now
+       - closing the panel from code is awkward on macOS 14
+       - no right-click menu; Quit and Settings need a new home
+  b. Build the menu bar item by hand, the older way.
+       + full control: click for the panel, right-click for a menu
+       + closing it is easy
+       - about a day more work
+       - Tuloy's windows are opened by the current menu bar piece; that
+         would have to be rebuilt too
+  c. Keep the menu and tidy the text.
+       - doesn't solve it
+
+RECOMMENDED: a, with a "more" button for the menu items, IF experiment E4
+passes. Otherwise b.
+
+  What's in the panel (about 300 points wide):
+    +------------------------------------------+
+    |  (ring)   Fresh at 8:00 PM               |
+    |   56%     Resets in 41 min · 2 min ago   |
+    |                                          |
+    |  This week  [=========----]  83%         |
+    |                                          |
+    |  [ Ping Now ]  [ Pause ]                 |
+    |                                          |
+    |  Next ping 8:01 PM: when this ends       |
+    |  Pinged. Window was already open.        |   <- notice line [45]
+    |------------------------------------------|
+    |  Open Tuloy     Mini window      (...)   |
+    +------------------------------------------+
+  (...) holds Settings, Help, Recent pings, Quit, and Demo scenes in demo.
+  With a problem, the top becomes the problem and its Fix It button.
+
+  One panel design, used three times: the popover, the mini window, and the
+  top of Home. Change it once, it changes everywhere.
+
+STEPS
+  0. E4, the one-hour throwaway.
+  1. Turn the mini window's contents into the shared panel, adding the
+     week bar, the age [2], the reason [47] and the notice [45].
+  2. Switch the menu bar item to show it.
+  3. The (...) menu.
+  4. Keyboard: Escape closes; Return pings; the shortcuts for Settings and
+     Quit still work while it's open.
+  5. Draw it into the tests, light and dark, every state.
+  6. Check with VoiceOver from the menu bar.
+
+CHECK IT'S THE BEST ROUTE
+  - E4's three questions, before anything else.
+  - Clicks to ping: today 2, with a hunt. Target 2, with no hunt: the
+    button is the biggest thing in the panel.
+  - The newcomer test: "Find out how much you've used, then start a
+    window." No help given. Time it against the old menu.
+  - It must open instantly. If it's slow to appear, that's a reason to
+    prefer b.
+  - Nothing is lost: list every item in today's menu and tick where each
+    one lives in the new design.
+
+DONE WHEN
+  A newcomer finds Ping Now and their usage in under five seconds.
+
+NEEDS  [2] [45] [47] for the full panel. branding.txt for the look.
+
+
+--------------------------------------------------------------------------
+[46] TODAY'S REAL WINDOWS ON HOME                                STAGE 3
+--------------------------------------------------------------------------
+WHY
+  The picture of the day shows the plan. Home should show the day as it
+  actually went: what opened, where you are now, what's still to come.
+
+TODAY
+  Tuloy keeps the last 20 pings, not windows. A window's beginning can be
+  worked out (reset minus 5 hours), which is how the table in Part 2 was
+  made.
+
+RECOMMENDED
+  Keep a short list of windows: when each began and ended, who opened it
+  (Tuloy, you, or your phone), and the highest usage seen in it. Two weeks'
+  worth, in a small file.
+
+  Draw today as one bar:
+    past windows      solid, filled to their highest usage
+    the open window   solid, with a "now" line
+    still to come     outlined, from the Forecast [47]
+    labels            start times, and "fresh" at each reset
+
+    12a      6a       12p      6p       12a
+    |--------|=========|=========|====|.....|
+             5:00     10:00     3:00  ^now  8:00
+
+STEPS
+  1. Start recording windows (from pings now; from usage checks with [1]).
+  2. Teach the existing day picture to draw real windows as well as planned.
+  3. Put it on Home under the status card.
+  4. Click a window for its details: began, ended, opened by, peak usage.
+
+CHECK IT'S THE BEST ROUTE
+  - Rebuild 6 October from the saved pings. The bar must show 11:40 PM,
+    5:00, 10:00 and 3:00, with the first marked "opened by you".
+  - Windows that cross midnight, and the day the clocks change.
+  - Glance test: cover everything but the bar. Can someone say when the
+    next fresh window is?
+
+DONE WHEN
+  Home answers "where am I in my day?" without reading a word.
+
+NEEDS  [47]. Much better with [1] and [8].
+
+
+--------------------------------------------------------------------------
+[63] A DOCK ICON WHILE A WINDOW IS OPEN                          STAGE 3
+--------------------------------------------------------------------------
+WHY
+  With no Dock icon, Tuloy's window slips behind others and isn't in the
+  app switcher. It also has no Edit menu, so copying with the keyboard may
+  not work.
+
+OPTIONS
+  a. Always show a Dock icon. Clutter for an app that mostly sits quietly.
+  b. Never (today).
+  c. Show it only while the main or welcome window is open.
+
+RECOMMENDED: c
+  Opening the main or welcome window turns Tuloy into a normal app for as
+  long as it's open: Dock icon, app switcher, and the usual menus
+  (including Edit, so Command-C works). Closing the last of them turns it
+  back. The mini window and the guide don't count; they float anyway.
+
+STEPS
+  1. Switch modes when those windows open and close.
+  2. Add the standard menus.
+  3. Needs the app icon from branding.txt. Without one the Dock shows a
+     blank placeholder, which looks broken. So this waits for the icon.
+
+CHECK IT'S THE BEST ROUTE
+  - Known rough edges to look for in demo mode: a flicker as it switches;
+    the window losing focus; the mini window vanishing when the mode
+    changes back. If any can't be fixed, fall back to b plus "bring to
+    front" on every open.
+  - Open the window, switch to another app with Command-Tab, switch back.
+    Tuloy must be in the list and come forward.
+  - Close the window. The Dock icon must go within a second and the menu
+    bar icon must stay.
+
+DONE WHEN
+  Tuloy's window behaves like any other app's window, and leaves no trace
+  when closed.
+
+NEEDS  the app icon (branding.txt)
+
+
+--------------------------------------------------------------------------
+[5] STEP THE TIME PICKER TO MATCH CLAUDE'S ROUNDING              STAGE 3
+--------------------------------------------------------------------------
+WHY
+  Windows begin on 10-minute marks. Ask for 10:07 and you get 10:00. The
+  picker should only offer times you can actually have.
+
+OPTIONS
+  a. Leave the picker, quietly round what you choose. Surprising.
+  b. Leave the picker, round and say so ("rounded to 10:00"). Honest, but
+     still lets you pick something you can't have.
+  c. A picker that only offers valid times: an hour, then :00 :10 :20 ...
+
+RECOMMENDED: c, after E2 confirms "10"
+  Apple's time picker can't step by 10 on the Mac, so this is two small
+  pop-up choices (hour, minutes) and AM/PM, in Schedule and the welcome.
+  A time saved earlier that isn't on a mark is rounded down once, with the
+  notice line saying so.
+
+STEPS
+  0. E2.
+  1. Build the stepped picker as one piece; use it in both places.
+  2. Same for "keep going until".
+  3. Round any saved odd time, once, and say so.
+  4. Keep recording send time and reset for every ping, so if Claude ever
+     changes the rounding, Tuloy notices and tells you.
+
+CHECK IT'S THE BEST ROUTE
+  - E2 first. Building this on a guess would bake in the wrong step.
+  - Test: for every time the picker offers, the planned ping lands in the
+    right 10 minutes and the reset equals the time picked.
+  - Is c easier than Apple's picker? Time someone setting 10:40 in each.
+
+DONE WHEN
+  The time you pick is always the time you get.
+
+NEEDS  E2
+
+
+--------------------------------------------------------------------------
+[33] NOTICE A FINISHED SIGN-IN WITHOUT A CLICK                   STAGE 3
+--------------------------------------------------------------------------
+WHY
+  After Sign In, the step turns green only when you click back into Tuloy.
+  For a moment you've signed in and nothing says so.
+
+OPTIONS
+  a. Check again when Tuloy comes to the front (today).
+  b. Check every few seconds while waiting.   Works, but starts a program
+     every few seconds.
+  c. Let the sign-in script tell Tuloy the moment it finishes.
+
+RECOMMENDED: c, with a light version of b as the safety net
+  The little script Tuloy opens in Terminal already runs the sign-in. Add
+  one line to it: when the sign-in ends, leave a marker in ~/.tuloy. Tuloy
+  is watching that folder, sees the marker at once, runs the check once,
+  and deletes both the marker and the script (which also does [36]).
+  For people who sign in by typing the command themselves, the gentle
+  repeated check from [14] catches it within 5 minutes.
+
+  Then: bring Tuloy forward, turn step 2 green, and show
+    "Signed in. Send a test ping to finish."
+  Whether Tuloy should send that test ping by itself is your call (Part 6).
+
+STEPS
+  1. Add the marker line to the script.
+  2. Watch the folder (free: macOS tells Tuloy when it changes).
+  3. On the marker: check once, tidy up, come forward, notice line.
+
+CHECK IT'S THE BEST ROUTE
+  - Count programs started while waiting: b would be about 20 a minute; c
+    is 1 in total.
+  - Cancel the sign-in half way. Tuloy must check, find it still signed
+    out, and say so without getting stuck.
+  - Close the Terminal window early. The safety net must still catch a
+    sign-in done later by hand.
+
+DONE WHEN
+  The step turns green while you're still looking at the browser.
+
+NEEDS  [14]
+
+
+--------------------------------------------------------------------------
+[35] SAY THE SURPRISING THING FIRST                              STAGE 3
+--------------------------------------------------------------------------
+WHY
+  It cost you a day. People signed in to the Claude app will assume that's
+  enough. Right now the fact is in small grey text inside step 2.
+
+RECOMMENDED
+  Three places, same sentence, top and bold:
+    "Claude Code signs in separately. Being signed in to the Claude app or
+     claude.ai isn't enough."
+    - Welcome, page 2: the first line, above the steps.
+    - Connection: the first line under the title.
+    - The signed-out problem everywhere it appears (menu, Home, mini,
+      notification): replace "Claude Code is signed out" with
+      "Claude Code needs its own sign-in".
+  And make Sign In the only bright button on that screen until it's done.
+
+STEPS
+  1. Change the words in those places (one shared sentence, see [149] in
+     suggestions.txt).
+  2. Re-draw the welcome and Connection in the tests.
+
+CHECK IT'S THE BEST ROUTE
+  - The real test is a person. Show the welcome's page 2 for ten seconds to
+    someone who uses the Claude app, then hide it and ask: "What do you
+    need to do?" If they don't say "sign in again", the wording isn't
+    there yet.
+  - Try two wordings on two people rather than arguing about it.
+
+DONE WHEN
+  Nobody reaches a failed ping without having been told why first.
+
+
+--------------------------------------------------------------------------
+[121] SAY PLAINLY WHAT TULOY IS                                  STAGE 3
+--------------------------------------------------------------------------
+WHY
+  Anyone you share this with should know, before installing, who made it
+  and what it does to their account.
+
+RECOMMENDED WORDING (a draft to edit)
+    "Tuloy is an independent app. It is not made, endorsed or supported by
+     Anthropic. Claude is Anthropic's trademark.
+
+     What it does: on a schedule you set, it sends one short message
+     through Claude Code on your Mac, so your 5-hour usage window starts
+     when you choose. It does not raise any limit: your window and weekly
+     allowances stay exactly what your plan gives you.
+
+     What it uses: about 350 tokens per message, from your own plan.
+
+     What it can't promise: Anthropic can change how windows or Claude Code
+     work at any time, and Tuloy may stop being useful when they do."
+
+  Where: an About screen, the foot of the welcome's first page (one line
+  with a link to the rest), and the top of the README.
+
+A PLAIN WARNING FROM ME
+  I can't tell you whether Anthropic is happy for people to time their
+  windows this way. I haven't read their terms for you and it isn't mine
+  to rule on. Before you give Tuloy to other people, read Anthropic's
+  Consumer Terms and Usage Policy yourself, and if it's unclear, ask them.
+  Whatever they say, the wording above should stay strictly true: describe
+  what it does, don't promise "more usage".
+
+STEPS
+  1. You read the terms; adjust the draft.
+  2. About screen; welcome line; README.
+  3. Keep Anthropic's logo and colours out of the branding (branding.txt).
+
+CHECK IT'S THE BEST ROUTE
+  - Every sentence must be checkable against the code. "350 tokens" comes
+    from the real count and should update if that changes.
+  - Read it to someone: do they come away knowing it isn't an Anthropic
+    product and that it spends a little of their plan?
+
+DONE WHEN
+  Nobody could install Tuloy believing it's official, or that it's free.
+
+
+--------------------------------------------------------------------------
+[74] SUGGEST A FRESH TIME FROM HOW YOU WORK                      STAGE 4
+--------------------------------------------------------------------------
+WHY
+  Most people will guess their fresh time once and never revisit it.
+
+TODAY
+  Not possible: Tuloy knows when windows open, not when YOU start working.
+  When Tuloy opens the window at 5:00, your 9:10 start is invisible.
+
+RECOMMENDED
+  With [1], your start shows up as the first rise in usage each day. After
+  ten working days:
+    1. Take the usual start time (the middle one, so one odd day doesn't
+       move it).
+    2. Suggest a fresh time 2.5 hours later, on a 10-minute mark.
+    3. Only speak up if that's 30 minutes or more from your current choice.
+    "You usually start around 9:10. A fresh window at 11:40 would suit you
+     better than 10:00.   [Use 11:40]  [Not now]"
+  Never change it by itself. One suggestion a month at most.
+
+STEPS
+  1. Record each day's first rise in usage (a time, nothing else).
+  2. After ten days, work out the suggestion.
+  3. Show it once on Schedule, with the two buttons.
+
+CHECK IT'S THE BEST ROUTE
+  - Is "2.5 hours after you start" right? Don't assume. Replay your own
+    two weeks with the current time and the suggested one, and count the
+    hours you were working with a fresh window in hand. Only suggest when
+    the replay says it's better.
+  - It all stays on your Mac. Say so beside the suggestion.
+
+DONE WHEN
+  The suggestion beats your own choice on your own history, or stays quiet.
+
+NEEDS  [1] and two weeks of data
+
+
+--------------------------------------------------------------------------
+[34] SIGN IN WITHOUT TERMINAL                                    STAGE 4
+--------------------------------------------------------------------------
+WHY
+  A Terminal window is frightening to people who don't use one.
+
+WHAT WE KNOW
+  Claude Code's sign-in may ask you to press a key to copy a link, or to
+  paste a code back in. Both expect a terminal. And it saves the login to
+  the Keychain, which can behave differently for a program started by an
+  app.
+
+OPTIONS
+  a. Keep Terminal, make the hand-back seamless [33].
+  b. Run the sign-in inside Tuloy with a pretend terminal, show its text in
+     a small box, and offer a paste field if it asks for a code.
+  c. Run it with no terminal at all and hope it just opens the browser.
+
+RECOMMENDED: a for now. Look at b only after [33] is in and only if E5
+shows the plain case (browser opens, sign-in completes, login is saved and
+a ping works) succeeds every time.
+
+CHECK IT'S THE BEST ROUTE
+  - E5, five times in a row, including once with the browser closed first.
+  - After signing in that way, does a ping work? If the login was saved
+    somewhere a ping can't read it, b is worse than a.
+  - A sign-in that fails half way is far worse than one that opens a
+    Terminal window. Reliability beats elegance here.
+
+DONE WHEN
+  Either it works five times out of five, or we leave it alone.
+
+
+==========================================================================
+PART 6. DECISIONS THAT ARE YOURS
+==========================================================================
+
+  1. May Tuloy add a small "Claude was just used" hook to Claude Code's
+     settings, the same careful way it adds live usage (asks first, keeps a
+     copy, can undo)? It makes [1] far more efficient.
+
+  2. After you sign in, should Tuloy send the test ping by itself, or wait
+     for you to press the button? By itself is easier; it also starts a
+     window at whatever time that happens to be.
+
+  3. How often may Tuloy check usage? Proposed: about a minute after you
+     use Claude, otherwise every 10 to 20 minutes. More often is fresher
+     but starts more programs.
+
+  4. Popover: should clicking the icon always show the panel, with Quit
+     and Settings under a (...) button? Or do you want a right-click menu
+     too (more work)?
+
+  5. "Nearly out" at 80% and 95%, both on by default?
+
+  6. Move the time picker to 10-minute steps as soon as E2 confirms it?
+
+  7. The word "ping": keep it, or try "wake-up message" on a couple of
+     people first?
+
+  8. Stage 1 changes nothing you can see. Are you happy to spend that time
+     on tests before the visible work? I'd strongly recommend it.
+
+
+==========================================================================
+PART 7. WHAT COULD GO WRONG
+==========================================================================
+
+  /usage turns out to cost tokens, or isn't readable.
+      Then [1] becomes the fallback, [83] is weaker, and [74] isn't
+      possible. E1 tells us in five minutes.
+
+  Claude Code changes /usage's wording.
+      The reader gives up cleanly, Home says usage can't be read, pings
+      carry on as today. Never a wrong number.
+
+  The usage service gets tired of being asked.
+      Tuloy backs off to 15 minutes when Claude Code reports "last-known
+      usage", and never asks more than every 3 minutes.
+
+  Hooks don't run in the desktop app after all.
+      The timer still covers it, just less promptly. E3 tells us.
+
+  The popover can't close itself cleanly.
+      Build the menu bar item by hand (option b). About a day more.
+
+  More moving parts means more to break.
+      That's what stage 1 is for. Nothing from stage 2 on is started until
+      the brain has tests.
+
+  We build too much at once.
+      One stage at a time, each followed by a day of real use.

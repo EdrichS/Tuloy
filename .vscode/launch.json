@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tuloy}",
+            "name": "Debug Tuloy",
+            "target": "Tuloy",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Tuloy"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:tuloy}",
+            "name": "Release Tuloy",
+            "target": "Tuloy",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Tuloy"
+        }
+    ]
+}

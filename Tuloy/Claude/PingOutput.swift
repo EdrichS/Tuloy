@@ -1,0 +1,186 @@
+import Foundation
+
+/// What one ping told Tuloy about your limits.
+struct PingReport: Equatable, Sendable {
+    /// Your 5-hour window, if Claude Code reported it.
+    var window: UsageReading?
+    /// Your weekly limit, if Claude Code reported it.
+    var week: UsageReading?
+    /// The limit that turned the ping away, if one is used up.
+    var blockedBy: Limit?
+    /// What the ping cost: every token sent and received, as counted by Claude Code.
+    var tokens: Int?
+
+    enum Limit: Sendable {
+        case window, week
+    }
+}
+
+/// Reads what `claude -p --output-format stream-json` printed: one JSON event per line.
+enum PingOutput {
+
+    /// Returns what the ping reported, or throws if it didn't get through.
+    static func read(_ output: String, status: Int32 = 0, errors: String = "", now: Date = Date()) throws -> PingReport {
+        let events = output.split(whereSeparator: \.isNewline).compactMap {
+            try? JSONDecoder().decode(StreamEvent.self, from: Data($0.utf8))
+        }
+
+        var report = PingReport()
+        for info in events.compactMap(\.rateLimits) {
+            let blocked = info.status == "rejected" ? limit(named: info.rateLimitType, resetsAt: info.resetsAt, now: now) : nil
+            if let blocked { report.blockedBy = blocked }
+
+            for (name, window) in info.windows {
+                guard let limit = limit(named: name, resetsAt: window.resetsAt, now: now),
+                      let resetsAt = window.resetsAt
+                else { continue }
+
+                let reading = UsageReading(
+                    percent: window.utilization.map(percent) ?? (limit == blocked ? 100 : nil),
+                    resetsAt: Date(unixTime: resetsAt),
+                    asOf: now
+                )
+                switch limit {
+                case .window: report.window = reading
+                case .week: report.week = reading
+                }
+            }
+        }
+
+        let result = events.last { $0.type == "result" }
+        report.tokens = result?.tokens
+
+        // A report on your window means the ping reached your plan, even if the reply
+        // itself failed (for example, when you're already at your limit).
+        if report.window != nil || report.blockedBy == .week { return report }
+        if status == 0, result?.isError != true { return report }
+
+        let message = result?.result ?? result?.errors?.first ?? errors
+        throw PingError(message: message.isEmpty ? "Claude Code exited with code \(status)." : message)
+    }
+
+    /// Which of your limits a report is about, or nil if it isn't one Tuloy tracks
+    /// (or it has already reset, so it says nothing about now).
+    private static func limit(named name: String?, resetsAt: Double?, now: Date) -> PingReport.Limit? {
+        guard let resetsAt else { return nil }
+        let remaining = Date(unixTime: resetsAt).timeIntervalSince(now)
+        let fitsWindow = remaining > 0 && remaining <= Schedule.window + 10 * 60
+        let fitsWeek = remaining > 0 && remaining <= 7 * 24 * 60 * 60 + 60 * 60
+
+        switch name {
+        case "five_hour":
+            return fitsWindow ? .window : nil
+        case let name? where name.hasPrefix("seven_day"):
+            return fitsWeek ? .week : nil
+        case nil:
+            // Older versions don't name the limit. Tell them apart by how far off the reset is.
+            return fitsWindow ? .window : fitsWeek ? .week : nil
+        default:
+            return nil
+        }
+    }
+
+    /// Claude Code reports usage as a fraction (0.42). Accept a percentage (42) too.
+    private static func percent(_ utilization: Double) -> Int {
+        UsageReading.clampedPercent(utilization <= 1.5 ? utilization * 100 : utilization)
+    }
+}
+
+/// One line of Claude Code's `stream-json` output (only the parts Tuloy uses).
+private struct StreamEvent: Decodable {
+    var type: String
+    var isError: Bool?
+    var result: String?
+    var errors: [String]?
+    var rateLimits: RateLimitInfo?
+    var usage: Usage?
+    var modelUsage: [String: ModelUsage]?
+
+    /// Every token the run used. The per-model list is the most complete, so prefer it.
+    var tokens: Int? {
+        if let modelUsage, !modelUsage.isEmpty { return modelUsage.values.reduce(0) { $0 + $1.total } }
+        return usage?.total
+    }
+
+    struct Usage: Decodable {
+        var input_tokens: Int?
+        var cache_creation_input_tokens: Int?
+        var cache_read_input_tokens: Int?
+        var output_tokens: Int?
+
+        var total: Int {
+            (input_tokens ?? 0) + (cache_creation_input_tokens ?? 0) + (cache_read_input_tokens ?? 0) + (output_tokens ?? 0)
+        }
+    }
+
+    struct ModelUsage: Decodable {
+        var inputTokens: Int?
+        var cacheCreationInputTokens: Int?
+        var cacheReadInputTokens: Int?
+        var outputTokens: Int?
+
+        var total: Int {
+            (inputTokens ?? 0) + (cacheCreationInputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (outputTokens ?? 0)
+        }
+    }
+
+    struct RateLimitInfo: Decodable {
+        var status: String?            // "allowed", "allowed_warning" or "rejected"
+        var rateLimitType: String?     // "five_hour", "seven_day", ...
+        var utilization: Double?       // 0...1
+        var resetsAt: Double?          // Unix time
+        var unifiedWindows: [String: Window]?
+
+        /// Every limit this report covers. Some versions list them all;
+        /// others report one at a time.
+        var windows: [(name: String?, window: Window)] {
+            if let unifiedWindows, !unifiedWindows.isEmpty {
+                return unifiedWindows.map { (name: $0.key, window: $0.value) }
+            }
+            return [(name: rateLimitType, window: Window(utilization: utilization, resetsAt: resetsAt))]
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case status, rateLimitType, utilization, resetsAt, unifiedWindows
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            status = values.optional(.status)
+            rateLimitType = values.optional(.rateLimitType)
+            utilization = values.optional(.utilization)
+            resetsAt = values.optional(.resetsAt)
+            unifiedWindows = values.optional(.unifiedWindows)
+        }
+    }
+
+    struct Window: Decodable {
+        var utilization: Double?
+        var resetsAt: Double?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type, result, errors, usage, modelUsage
+        case isError = "is_error"
+        case rateLimits = "rate_limit_info"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        type = try values.decode(String.self, forKey: .type)
+        isError = values.optional(.isError)
+        result = values.optional(.result)
+        errors = values.optional(.errors)
+        rateLimits = type == "rate_limit_event" ? values.optional(.rateLimits) : nil
+        usage = values.optional(.usage)
+        modelUsage = values.optional(.modelUsage)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    /// A value if it's there and the type Tuloy expects, otherwise nil. Claude Code's
+    /// output changes between versions, and one surprise shouldn't cost the whole line.
+    func optional<T: Decodable>(_ key: Key) -> T? {
+        try? decode(T.self, forKey: key)
+    }
+}
