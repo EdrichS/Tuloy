@@ -5,6 +5,8 @@ import SwiftUI
 struct Ring: View {
     var progress: Double   // 0...1
     var text: String
+    /// True when the number is more than 15 minutes old.
+    var isFaded = false
 
     var body: some View {
         ZStack {
@@ -20,6 +22,7 @@ struct Ring: View {
                 .monospacedDigit()
         }
         .foregroundStyle(.black)
+        .opacity(isFaded ? 0.5 : 1)
         .frame(width: 20, height: 20)
     }
 

@@ -1,4 +1,3 @@
-# Build output
 build/
 .build/
 .swiftpm/

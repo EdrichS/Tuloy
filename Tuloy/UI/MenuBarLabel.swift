@@ -38,6 +38,10 @@ struct MenuBarLabel: View {
                     openWindow(id: window.rawValue)
                 }
             }
+            // Read out what just happened, for people using VoiceOver.
+            .onChange(of: model.notice) { _, notice in
+                if let notice { AccessibilityNotification.Announcement(notice.text).post() }
+            }
     }
 
     @ViewBuilder
@@ -50,11 +54,11 @@ struct MenuBarLabel: View {
             case .classic:
                 statusIcon
             case .usage:
-                Image(nsImage: Ring(progress: usageProgress, text: usageText).image())
+                Image(nsImage: Ring(progress: usageProgress, text: usageText, isFaded: model.isUsageStale).image())
             case .timer:
                 if model.freshAt != nil { Text(countdown) } else { statusIcon }
             case .ultra:
-                Image(nsImage: Ring(progress: usageProgress, text: countdown).image())
+                Image(nsImage: Ring(progress: usageProgress, text: countdown, isFaded: model.isUsageStale).image())
             }
         }
     }

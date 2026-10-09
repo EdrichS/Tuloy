@@ -17,6 +17,24 @@ enum Format {
         return date.formatted(.dateTime.weekday(.wide))
     }
 
+    /// "8:00 PM" today, "5:00 AM tomorrow", otherwise "Wed 5:00 AM".
+    static func when(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "\(time) tomorrow"
+        }
+        return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+
+    /// How old a reading is: "just now", "6 min ago", or "as of 3:01 PM" once it's over 15 minutes.
+    static func age(of date: Date, now: Date) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        if minutes < 2 { return "just now" }
+        if minutes <= 15 { return "\(minutes) min ago" }
+        return "as of \(time(date))"
+    }
+
     /// "3 h 12 min", "45 min", or "less than a minute": the countdown in words.
     static func duration(to date: Date, from now: Date) -> String {
         let minutes = max(0, Int(date.timeIntervalSince(now) / 60))

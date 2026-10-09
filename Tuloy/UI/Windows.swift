@@ -16,7 +16,7 @@ enum WindowID: String {
 
 /// The screens in the main window.
 enum MainTab: String, CaseIterable, Identifiable {
-    case home, schedule, connection, preferences, help
+    case home, schedule, connection, preferences, help, about
 
     var id: Self { self }
     var title: String { rawValue.capitalized }
@@ -28,6 +28,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .connection: return "link"
         case .preferences: return "slider.horizontal.3"
         case .help: return "questionmark.circle"
+        case .about: return "info.circle"
         }
     }
 }
@@ -35,7 +36,7 @@ enum MainTab: String, CaseIterable, Identifiable {
 /// Reaches the real window behind a SwiftUI view, for the few things SwiftUI can't set on macOS 14
 /// (like floating above other windows).
 struct WindowConfigurator: NSViewRepresentable {
-    var configure: (NSWindow) -> Void
+    var configure: @MainActor (NSWindow) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = Reader()
@@ -46,7 +47,7 @@ struct WindowConfigurator: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {}
 
     private final class Reader: NSView {
-        var configure: ((NSWindow) -> Void)?
+        var configure: (@MainActor (NSWindow) -> Void)?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -165,6 +166,8 @@ struct StatusRing: View {
         }
         .padding(size * 0.045)
         .frame(width: size, height: size)
+        // An old reading looks old: faded, until it's refreshed.
+        .opacity(model.isUsageStale ? 0.5 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(center) \(label)")
     }

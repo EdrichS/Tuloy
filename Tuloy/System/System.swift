@@ -2,38 +2,34 @@ import Foundation
 import ServiceManagement
 import UserNotifications
 
-/// Tuloy's notifications: "fresh window", and a heads-up when pings need your help.
-enum Notifier {
-    private static let freshID = "fresh-window"
-    private static let problemID = "problem"
+/// The real notifications socket: macOS's Notification Centre.
+final class SystemNotices: Notices {
+    private let freshID = "fresh-window"
 
-    /// Notifications need a real app, so not when Tuloy runs bare (`swift run`). Demo mode stays quiet too.
-    private static let isAvailable = Bundle.main.bundleIdentifier != nil && !Demo.isOn
+    /// Notifications need a real app, so not when Tuloy runs bare (`swift run`).
+    private let isAvailable = Bundle.main.bundleIdentifier != nil
 
-    static func requestPermission() {
+    func requestPermission() {
         guard isAvailable else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// Schedules the fresh window notification for `date`, replacing any earlier one.
-    static func freshWindow(at date: Date) {
+    func freshWindow(at date: Date?) {
+        guard isAvailable else { return }
+        guard let date else {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [freshID])
+            return
+        }
         let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        send(id: freshID, title: "Fresh window", body: "Your Claude usage just reset.",
+        send(freshID, title: "Fresh window", body: "Your Claude usage just reset.",
              trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: false))
     }
 
-    static func cancelFreshWindow() {
-        guard isAvailable else { return }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [freshID])
+    func post(_ id: String, title: String, body: String) {
+        send(id, title: title, body: body, trigger: nil)
     }
 
-    /// Tells you right away when pings can't work until you step in.
-    static func problem(_ error: PingError) {
-        send(id: problemID, title: error.errorDescription ?? "Tuloy needs attention",
-             body: error.recoverySuggestion ?? "Open Tuloy in the menu bar for details.", trigger: nil)
-    }
-
-    private static func send(id: String, title: String, body: String, trigger: UNNotificationTrigger?) {
+    private func send(_ id: String, title: String, body: String, trigger: UNNotificationTrigger?) {
         guard isAvailable else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -41,6 +37,19 @@ enum Notifier {
         content.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
+}
+
+/// Notifications that go nowhere. For demo mode.
+final class SilentNotices: Notices {
+    func requestPermission() {}
+    func freshWindow(at date: Date?) {}
+    func post(_ id: String, title: String, body: String) {}
+}
+
+/// The real storage socket: the app's saved preferences.
+final class PreferencesStorage: Storage {
+    func value(for key: String) -> Any? { UserDefaults.standard.object(forKey: key) }
+    func set(_ value: Any?, for key: String) { UserDefaults.standard.set(value, forKey: key) }
 }
 
 /// "Launch at login", using macOS's built-in login items.

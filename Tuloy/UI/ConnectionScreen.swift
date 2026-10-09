@@ -10,6 +10,9 @@ struct ConnectionContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connection")
                     .font(.title2.weight(.semibold))
+                Text(Commands.surprise)
+                    .fontWeight(.semibold)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Tuloy sends its pings through Claude Code, Anthropic's command-line app. It has to be installed and signed in on this Mac. Work down the steps: each one shows whether it's done.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -115,11 +118,18 @@ struct ConnectionChecklist: View {
         }
     }
 
+    private var isSignedIn: Bool {
+        switch model.setup {
+        case .ready, .unknown: return true
+        case .checking, .notInstalled, .signedOut, .notOnPlan: return false
+        }
+    }
+
     private var signInDetail: String {
         if model.setup == .notOnPlan {
             return "Claude Code is set up with an API key, so pings would be billed and wouldn't start your window. Sign in with your Claude account instead."
         }
-        return "Claude Code has its own sign-in. Being signed in to the Claude desktop app or claude.ai doesn't count, so this is the step most people are missing."
+        return "This is the step most people are missing. It takes a minute, and you only do it once."
     }
 
     // MARK: - 3. Test ping
@@ -140,7 +150,8 @@ struct ConnectionChecklist: View {
                 testedAt = Date()
                 Task { await model.pingNow() }
             }
-            .buttonStyle(TuloyButtonStyle(prominent: true))
+            // Until you're signed in, Sign In is the one bright button on this screen.
+            .buttonStyle(TuloyButtonStyle(prominent: isSignedIn))
             .disabled(model.isPinging || !isInstalled)
 
             if let result {
@@ -289,6 +300,8 @@ extension Step where Content == EmptyView {
 
 /// The commands Tuloy shows you, in one place so every screen says the same thing.
 enum Commands {
+    /// The fact that surprises almost everyone. Said first, wherever signing in comes up.
+    static let surprise = "Claude Code signs in separately. Being signed in to the Claude app or claude.ai isn't enough."
     static let install = "curl -fsSL https://claude.ai/install.sh | bash"
     static let status = "claude auth status"
     /// The plain ping, exactly as Tuloy runs it, split over lines so it reads well and still pastes.

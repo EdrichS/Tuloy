@@ -12,11 +12,11 @@ struct TuloyApp: App {
         // Tuloy lives in the menu bar: no Dock icon (LSUIElement in Support/Info.plist).
         // This is the one piece that's always there. It also opens the windows below.
         MenuBarExtra {
-            MenuContent(model: model)
+            PopoverView(model: model)
         } label: {
             MenuBarLabel(model: model)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
         // The windows. Closing any of them leaves Tuloy running in the menu bar.
         Window("Tuloy", id: WindowID.main.rawValue) {

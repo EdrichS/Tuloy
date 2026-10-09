@@ -34,43 +34,67 @@ enum ClaudeCLI {
         "--output-format", "stream-json", "--verbose",
     ]
 
-    /// Sends one ping and returns what Claude Code reported about your limits.
-    static func ping() async throws -> PingReport {
-        let claude = try await findClaude()
-        do {
-            do {
-                return try await ping(claude, arguments: leanArguments)
-            } catch let error as PingError where error.mayBeTheExtras {
-                // Perhaps an older Claude Code that doesn't know the newer flags. The basics still work.
-                return try await ping(claude, arguments: arguments)
-            }
-        } catch PingError.signedOut {
+    /// Sends one ping, starting with whichever command last worked.
+    static func ping(remembering memory: PingMemory?) async -> PingOutcome {
+        guard let claude = await locator.find() else {
+            return PingOutcome(result: .failure(.claudeNotFound), style: memory?.style ?? .lean)
+        }
+
+        let first = memory?.style ?? .lean
+        var outcome = await run(first, with: claude)
+        if first == .lean, case .failure(let error) = outcome.result,
+           PingMemory.mayFallBack(after: error, memory: memory, version: outcome.version) {
+            // Perhaps a Claude Code that doesn't know the newer flags. The plain command works on any.
+            let plain = await run(.plain, with: claude)
+            outcome = PingOutcome(result: plain.result, style: .plain, version: plain.version ?? outcome.version)
+        }
+
+        if case .failure(.signedOut) = outcome.result, case .ready = await checkSetup() {
             // Claude Code says you're signed in, yet the ping couldn't use your login. Say so:
             // "sign in" alone would be the wrong advice if Claude Code changed how pings sign in.
-            if case .ready = await checkSetup() { throw PingError.loginNotUsed }
-            throw PingError.signedOut
+            outcome.result = .failure(.loginNotUsed)
         }
+        return outcome
     }
 
-    private static func ping(_ claude: URL, arguments: [String]) async throws -> PingReport {
-        let run = try await Shell.run(claude, arguments: arguments, environment: environment(for: claude),
-                                      directory: Paths.tuloy, timeout: 90)
-        return try PingOutput.read(run.output, status: run.status, errors: run.errors)
+    private static func run(_ style: PingStyle, with claude: URL) async -> PingOutcome {
+        do {
+            let run = try await Shell.run(claude, arguments: style == .lean ? leanArguments : arguments,
+                                          environment: environment(for: claude), directory: Paths.tuloy, timeout: 90)
+            let version = PingOutput.version(in: run.output)
+            do {
+                let report = try PingOutput.read(run.output, status: run.status, errors: run.errors)
+                return PingOutcome(result: .success(report), style: style, version: version)
+            } catch {
+                return PingOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)), style: style, version: version)
+            }
+        } catch {
+            return PingOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)), style: style)
+        }
     }
 
     /// Checks that Claude Code is installed and signed in, without sending a message.
     static func checkSetup() async -> ClaudeSetup {
-        guard let claude = try? await findClaude() else { return .notInstalled }
+        guard let claude = await locator.find() else { return .notInstalled }
         guard let run = try? await Shell.run(claude, arguments: ["auth", "status"], environment: environment(for: claude),
                                              directory: Paths.tuloy, timeout: 20)
         else { return .unknown }
         return ClaudeSetup(authStatus: run.output)
     }
 
+    /// Claude Code's version, such as "2.1.288". Instant, and sends nothing.
+    static func version() async -> String? {
+        guard let claude = await locator.find(),
+              let run = try? await Shell.run(claude, arguments: ["--version"], environment: environment(for: claude), timeout: 10)
+        else { return nil }
+        return run.output.split(whereSeparator: \.isWhitespace).first.map(String.init)
+    }
+
     /// What Terminal runs when you choose Sign In: Claude Code's own sign-in, and nothing else.
-    static func signInScript(for claude: URL) -> String {
+    /// When it finishes it leaves `marker` behind, which is how Tuloy knows to look again at once.
+    static func signInScript(for claude: URL, marker: URL) -> String {
         // Single quotes keep a path with spaces in one piece. A quote inside the path is closed, escaped and reopened.
-        let path = claude.path(percentEncoded: false).replacingOccurrences(of: "'", with: "'\\''")
+        let quoted = { (url: URL) in "'" + url.path(percentEncoded: false).replacingOccurrences(of: "'", with: "'\\''") + "'" }
         return """
         #!/bin/zsh
         # Made by Tuloy. Signs Claude Code in with your Claude account, in your browser.
@@ -78,21 +102,24 @@ enum ClaudeCLI {
         echo "Signing in to Claude Code for Tuloy."
         echo "Your browser will open. Sign in with the account that has your Claude plan."
         echo
-        '\(path)' auth login
+        \(quoted(claude)) auth login
+        touch \(quoted(marker))
         echo
         echo "Done. You can close this window and go back to Tuloy."
 
         """
     }
 
-    /// Where the `claude` command is, or nil if it isn't installed.
-    static func locate() async -> URL? {
-        try? await findClaude()
-    }
+    /// Where the `claude` command is. Found once and remembered, even between launches.
+    static let locator = Locator(
+        remembered: UserDefaults.standard.string(forKey: "claudeFoundAt"),
+        search: { await searchForClaude() },
+        found: { UserDefaults.standard.set($0?.path(percentEncoded: false), forKey: "claudeFoundAt") }
+    )
 
-    /// Finds the `claude` command, checking the usual install spots first.
-    private static func findClaude() async throws -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+    /// Looks for the `claude` command, checking the usual install spots first.
+    private static func searchForClaude() async -> URL? {
+        let home = NSHomeDirectory()
         let usualPlaces = [
             "\(home)/.local/bin/claude",       // Claude Code's native installer
             "\(home)/.claude/local/claude",    // older local installs
@@ -106,7 +133,7 @@ enum ClaudeCLI {
         // Somewhere else: ask your login shell.
         let shell = try? await Shell.run(URL(fileURLWithPath: "/bin/zsh"), arguments: ["-lc", "command -v claude"], timeout: 10)
         let path = (shell?.output ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else { throw PingError.claudeNotFound }
+        guard !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else { return nil }
         return URL(fileURLWithPath: path)
     }
 
@@ -129,6 +156,67 @@ enum ClaudeCLI {
         env["PATH"] = folders.joined(separator: ":")
         return env
     }
+}
+
+/// Remembers where the `claude` command is, so the search runs once and not before every ping.
+/// Before each use it makes one cheap check that the file is still there, and searches again if not.
+final class Locator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var known: URL?
+    private let isRunnable: @Sendable (String) -> Bool
+    private let search: @Sendable () async -> URL?
+    private let found: @Sendable (URL?) -> Void
+
+    init(remembered: String? = nil,
+         isRunnable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+         search: @escaping @Sendable () async -> URL?,
+         found: @escaping @Sendable (URL?) -> Void = { _ in }) {
+        known = remembered.map { URL(fileURLWithPath: $0) }
+        self.isRunnable = isRunnable
+        self.search = search
+        self.found = found
+    }
+
+    func find() async -> URL? {
+        let remembered = lock.withLock { known }
+        if let remembered, isRunnable(remembered.path(percentEncoded: false)) { return remembered }
+
+        let result = await search()
+        lock.withLock { known = result }
+        found(result)
+        return result
+    }
+}
+
+/// The real Claude Code: runs the `claude` command on this Mac.
+struct RealClaude: ClaudeCode {
+    func ping(remembering memory: PingMemory?) async -> PingOutcome {
+        await ClaudeCLI.ping(remembering: memory)
+    }
+
+    func checkSetup() async -> ClaudeSetup {
+        await ClaudeCLI.checkSetup()
+    }
+
+    func locate() async -> String? {
+        await ClaudeCLI.locator.find().map { ($0.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath }
+    }
+
+    func version() async -> String? {
+        await ClaudeCLI.version()
+    }
+}
+
+/// What to do after a ping fails.
+enum RetryRule: Sendable {
+    /// No retry can work. Wait until the free check says you've fixed it.
+    case whenYouFixIt
+    /// Once more at the next scheduled time, not before.
+    case atNextSchedule
+    /// After 1, 2, 5, 15, then 30 minutes.
+    case soon
+    /// The same, but after five tries only once an hour.
+    case soonThenHourly
 }
 
 /// Why a ping didn't get through.
@@ -166,7 +254,7 @@ enum PingError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .claudeNotFound: return "Can't find Claude Code."
-        case .signedOut: return "Claude Code is signed out."
+        case .signedOut: return "Claude Code needs its own sign-in."
         case .loginNotUsed: return "The ping couldn't use your Claude login."
         case .notOnPlan: return "Claude Code isn't using your Claude plan."
         case .offline: return "Couldn't reach Claude."
@@ -179,13 +267,13 @@ enum PingError: LocalizedError, Equatable, Sendable {
     /// What to do about it.
     var recoverySuggestion: String? {
         switch self {
-        case .claudeNotFound: return "Install it from code.claude.com, run \"claude\" in Terminal and sign in. Then choose Ping Now."
-        case .signedOut: return "Open Terminal, run \"claude\" and sign in. Then choose Ping Now."
-        case .loginNotUsed: return "In Terminal, run \"claude\" and sign in again, then choose Ping Now. If it keeps happening, look for a Tuloy update."
+        case .claudeNotFound: return "Tuloy pings through Claude Code. Open Connection for how to install it."
+        case .signedOut: return "Being signed in to the Claude app or claude.ai isn't enough. Open Connection and choose Sign In."
+        case .loginNotUsed: return "Open Connection and sign in again. If it keeps happening, look for a Tuloy update."
         case .notOnPlan: return "Run \"claude\" in Terminal and sign in with your Claude account, not an API key."
         case .offline: return "Check your internet connection. Tuloy will try again."
         case .timedOut: return "Tuloy will try again."
-        case .unknownOption: return "Run \"claude update\" in Terminal. Then choose Ping Now."
+        case .unknownOption: return "Run \"claude update\" in Terminal. Tuloy notices when it's done."
         case .failed: return nil
         }
     }
@@ -195,6 +283,16 @@ enum PingError: LocalizedError, Equatable, Sendable {
         switch self {
         case .unknownOption, .signedOut, .failed: return true
         case .claudeNotFound, .loginNotUsed, .notOnPlan, .offline, .timedOut: return false
+        }
+    }
+
+    /// What to do after this failure: try again soon, or wait for you.
+    var retry: RetryRule {
+        switch self {
+        case .claudeNotFound, .signedOut, .notOnPlan, .unknownOption: return .whenYouFixIt
+        case .loginNotUsed: return .atNextSchedule
+        case .offline, .timedOut: return .soon
+        case .failed: return .soonThenHourly
         }
     }
 

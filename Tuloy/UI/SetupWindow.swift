@@ -98,6 +98,14 @@ struct SetupPage: View {
             Text("An example day: a ping at 6:00 AM means a fresh window at 11:00 AM.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                Text("Tuloy is an independent app. It is not made or endorsed by Anthropic.")
+                Button("About Tuloy") { model.open(.main, tab: .about) }
+                    .buttonStyle(.link)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -105,6 +113,9 @@ struct SetupPage: View {
 
     private var connect: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(Commands.surprise)
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
             Text("Tuloy sends its message through Claude Code, Anthropic's command-line app, so it counts toward your plan and Tuloy never sees your login. Three things to tick off:")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -168,7 +179,7 @@ struct SetupPage: View {
             }
 
             Point(symbol: "menubar.arrow.up.rectangle", title: "Find Tuloy in the menu bar",
-                  text: "Click its icon for the countdown, Ping Now, Pause, and to open this app's window again.")
+                  text: "Click its icon for a small panel: your usage, the countdown, Ping Now, Pause, and a button to open this app's window again.")
             Point(symbol: "rectangle.inset.topright.filled", title: "Or keep the mini window open",
                   text: "A small panel that floats above everything. Closing it, or any Tuloy window, leaves Tuloy running.")
             Point(symbol: "iphone", title: "Mac asleep at ping time?",

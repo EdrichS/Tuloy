@@ -59,6 +59,17 @@ enum PingOutput {
         throw PingError(message: message.isEmpty ? "Claude Code exited with code \(status)." : message)
     }
 
+    /// Claude Code's version, from the first line it prints. It's there even when the ping fails.
+    static func version(in output: String) -> String? {
+        struct Start: Decodable {
+            var claude_code_version: String?
+        }
+        for line in output.split(whereSeparator: \.isNewline).prefix(20) {
+            if let version = (try? JSONDecoder().decode(Start.self, from: Data(line.utf8)))?.claude_code_version { return version }
+        }
+        return nil
+    }
+
     /// Which of your limits a report is about, or nil if it isn't one Tuloy tracks
     /// (or it has already reset, so it says nothing about now).
     private static func limit(named name: String?, resetsAt: Double?, now: Date) -> PingReport.Limit? {

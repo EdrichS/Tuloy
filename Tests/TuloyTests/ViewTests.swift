@@ -72,6 +72,8 @@ import Testing
         model.mainTab = .help
         try save(window(HelpContent(model: model)), as: "main-help", width: 700)
         try save(QuestionRow(question: Question.all[1], isOpen: true), as: "help-question", width: 480)
+        model.mainTab = .about
+        try save(window(AboutContent(model: model)), as: "main-about", width: 700)
     }
 
     @Test func welcomeRenders() throws {
@@ -89,7 +91,8 @@ import Testing
     @Test func miniWindowRenders() throws {
         for (scene, name) in [(Demo.Scene.running, "running"), (.almostOut, "almost-out"), (.problem, "problem"), (.resting, "resting")] {
             model.show(scene)
-            try save(MiniContent(model: model), as: "mini-\(name)", width: 280)
+            try save(PanelContent(model: model, place: .mini).padding(14), as: "mini-\(name)", width: 300)
+            try save(PanelContent(model: model, place: .popover).padding(14), as: "popover-\(name)", width: 310)
         }
         model.show(.running)
     }
@@ -102,7 +105,7 @@ import Testing
         }
         model.show(.problem)
         #expect(model.status == .problem)
-        #expect(model.headline == "Claude Code is signed out.")
+        #expect(model.headline == "Claude Code needs its own sign-in.")
         model.show(.running)
         #expect(model.headline.hasPrefix("Fresh window at"))
     }

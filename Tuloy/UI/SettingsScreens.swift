@@ -91,8 +91,19 @@ struct PreferencesScreen: View {
                 }
             }
 
+            Section("Notifications") {
+                Toggle("Tell me when a fresh window opens", isOn: $model.notify)
+                Toggle(isOn: $model.warnNearlyOut) {
+                    Text("Warn me when a window is nearly used up")
+                    Text("At 80% and at 95%, with the time left until it resets.")
+                }
+                Toggle(isOn: $model.warnWeek) {
+                    Text("Warn me when my week is nearly used up")
+                    Text("At 80% and at 95% of your weekly allowance.")
+                }
+            }
+
             Section("General") {
-                Toggle("Notify me when a fresh window opens", isOn: $model.notify)
                 Toggle(isOn: $launchAtLogin) {
                     Text("Launch at login")
                     Text("Tuloy has to be running to ping. It must be in your Applications folder for this.")

@@ -4,6 +4,8 @@
 
 A small macOS app that starts your Claude usage window on a schedule, so it resets when you want it to.
 
+> Tuloy is an independent app. It is not made, endorsed or supported by Anthropic. It doesn't raise any limit: it only changes when a window starts, and each ping uses about 350 tokens of your own plan. Read Anthropic's terms and usage policy to decide whether using it is right for you.
+
 Claude's usage limit runs in 5-hour windows that start with your first message. Tell Tuloy when you want a fresh window (say 11:00 AM) and it sends a tiny message through Claude Code at 6:00 AM. By the time you're deep in work, your allowance resets.
 
 For how it all works inside, step by step, see [HOW_IT_WORKS.md](HOW_IT_WORKS.md). Ideas for what to add next are in [helpideas.txt](helpideas.txt).
@@ -43,15 +45,16 @@ Opens when you open the app, and from **Open Tuloy…** in the menu bar.
 
 | Screen | What it's for |
 |---|---|
-| **Home** | What's happening now: the usage ring, when your fresh window is, Ping Now, Pause, and the last pings with what came back |
+| **Home** | What's happening now (the same panel as under the menu bar icon), today's real windows on one bar, and the last pings with what came back |
 | **Schedule** | When you want your fresh window and on which days, Keep going, and a picture of the day that follows |
 | **Connection** | Checks Claude Code step by step, signs you in, sends a test ping, and connects live usage |
 | **Preferences** | The menu bar icon's look, which windows open at start, notifications, launch at login |
 | **Help** | The idea, where everything is, what the icon means, iPhone steps, and common questions |
+| **About** | What Tuloy is and isn't, what it uses, and what it can't promise |
 
 ### The mini window
 
-A small panel that floats above your other windows, on every desktop: the ring, your fresh time, Ping Now and Pause. Open it from Home or the menu bar. Preferences can open it every time Tuloy starts.
+The same panel, floating above your other windows on every desktop. Open it from Home or the menu bar. Preferences can open it every time Tuloy starts.
 
 ### The step-by-step guide
 
@@ -68,36 +71,41 @@ Pick a look in Preferences:
 | Timer | A countdown to your next fresh window |
 | Ultra | The usage ring with the countdown inside |
 
-A problem always shows ⚠, whatever the mode. Click the icon for the menu:
+A problem always shows ⚠, whatever the mode. A ring that's faded is showing a number more than 15 minutes old.
+
+### The panel
+
+Click the menu bar icon for a small panel:
 
 ```
-Tuloy
-Fresh window at 11:00 AM · in 3:12
-This window: 23% used · as of 7:48 AM
-This week: 41% used · resets Thu 9:00 AM
-Next ping Tue 6:00 AM
-Last ping 6:00 AM ✓
-──────────────────────────
-Open Tuloy…
-Show Mini Window
-──────────────────────────
-Pause
-Ping Now
-Recent Pings                ▸
-──────────────────────────
-Settings…
-Help
-Quit Tuloy
+ (ring)   Fresh at 8:00 PM
+  56%     Resets in 41 min
+          Usage 2 min ago  ↻
+
+ This week  ▓▓▓▓▓▓▓▓▓░░░  83%
+
+ [ Ping Now ]  [ Pause ]
+
+ Next ping 8:01 PM: when this window ends
+ ✓ Pinged. Fresh window at 8:00 PM.
+ ─────────────────────────────────────
+ Open Tuloy    Mini Window        (…)
 ```
 
-When something needs you, the menu says what, how to fix it, and gains a **Fix This…** item that opens Connection.
+- **Ping Now** and **Pause** are right there. Return pings; Escape closes the panel.
+- **↻** refreshes the usage number. It sends one ping, and says so.
+- **Next ping** always comes with its reason.
+- The last line says what just happened, for a few seconds after anything you do.
+- **(…)** holds Settings, Connection, Help, Recent Pings and Quit.
+
+When something needs you, the top of the panel becomes the problem, with a **Fix It…** button that opens Connection.
 
 ## Connecting to Claude
 
 Open **Connection**. It has four steps, each with a tick when it's done:
 
 1. **Claude Code is installed.** If not, it shows the install command to paste into Terminal.
-2. **Signed in with your Claude plan.** **Sign In…** opens Terminal and your browser. Sign in there, come back, and Tuloy checks again by itself. This is the step most people are missing.
+2. **Signed in with your Claude plan.** **Sign In…** opens Terminal and your browser. Sign in there. The moment it finishes, Tuloy notices by itself, turns the step green and comes to the front. This is the step most people are missing.
 3. **Send a test ping.** The real thing. A green "It works" shows when your window resets and how many tokens the ping used. If it fails, it says why and what to do.
 4. **Live usage** (optional, below).
 
@@ -127,7 +135,10 @@ open -n build/Tuloy.app --args --demo --setup
 - **Each ping is as small as it gets.** The smallest model (Haiku) with thinking off, no tools, none of your hooks, plugins or CLAUDE.md, and no saved transcript. The message is "hi" and the reply is one word. Recent pings shows how many tokens each one used.
 - **Missed pings still go out.** Tuloy checks the clock every 30 seconds instead of setting one long timer. If your Mac was asleep, off or offline when a ping was due, it sends it as soon as it can, as long as that can still help (within 5 hours).
 - **It waits for an open window.** A ping only starts a window if none is open. If you were up late and a window is still running at ping time, Tuloy waits for it to end, then pings.
-- **Failed pings retry.** After 1 minute, then 2, 5, 15 and 30. If it's something only you can fix, like Claude Code being signed out, Tuloy sends a notification.
+- **Failed pings retry, when retrying can help.** After 1 minute, then 2, 5, 15 and 30. If it's something only you can fix, like signing in, Tuloy tries once, tells you, and then waits: it looks in with a free check (no message sent) and pings again as soon as you've fixed it.
+- **It checks before it matters.** An hour before each scheduled ping, the same free check runs. If Claude Code has been signed out, you hear about it while there's still time.
+- **It warns you when you're nearly out.** At 80% and 95% of a window, and of your week. Only on a current reading, and once each.
+- **It says why.** Every "next ping" comes with its reason, and if today's fresh window isn't when you asked, Tuloy says why not.
 - **Usage comes from Claude Code too.** Each ping reports exactly when your window resets, and how much you've used once you're getting close. That feeds the ring, the countdown and the notification.
 
 ## Live usage (optional)
@@ -181,7 +192,7 @@ Open **Connection** first: it shows which step isn't done.
 | Tuloy says | What to do |
 |---|---|
 | Can't find Claude Code | Install [Claude Code](https://code.claude.com/docs). Connection shows the command |
-| Claude Code is signed out | Choose **Sign In…** in Connection, or run `claude auth login` in Terminal. Being signed in to the desktop app isn't enough |
+| Claude Code needs its own sign-in | Choose **Sign In…** in Connection, or run `claude auth login` in Terminal. Being signed in to the desktop app isn't enough |
 | The ping couldn't use your Claude login | Claude Code says you're signed in, but the ping wasn't allowed to use that login. Sign in again, then send a test ping. If it keeps happening after a Claude Code update, see the note below |
 | Claude Code isn't using your Claude plan | It's set up with an API key. Sign in with your Claude account instead |
 | Couldn't reach Claude | Check your internet. Tuloy retries on its own |
@@ -196,10 +207,12 @@ Open **Connection** first: it shows which step isn't done.
 | File | What it does |
 |---|---|
 | `Tuloy/TuloyApp.swift` | Entry point: the menu bar item, the four windows, and what opens at start |
-| `Tuloy/AppModel.swift` | The brain: settings, the 30-second loop, pings and state |
+| `Tuloy/AppModel.swift` | The wiring: the 30-second loop, waking and reconnecting, the windows, live usage |
 | **`Tuloy/Core/`** | **The thinking. No clock, no network, all tested** |
+| `Engine.swift` | The brain: what to do with a ping's result, when to retry, when to wait for you, what to tell you |
+| `Sockets.swift` | The four things the Engine plugs into (clock, Claude Code, storage, notifications), so tests can swap in pretend ones |
 | `Schedule.swift` | Turns "fresh at 11:00" into "ping at 6:00", plus keep going |
-| `Planner.swift` | Decides what to do right now: wait, ping, or skip |
+| `Planner.swift` | Decides what to do right now (wait, ping, or skip), and forecasts the next ping with its reason |
 | `Usage.swift` | A reading of one of your limits, and the ping history |
 | `Format.swift` | Time and countdown text |
 | **`Tuloy/Claude/`** | **Talking to Claude Code** |
@@ -215,9 +228,9 @@ Open **Connection** first: it shows which step isn't done.
 | `SettingsScreens.swift` | Schedule and Preferences |
 | `HelpScreen.swift` | Help |
 | `SetupWindow.swift` | The welcome |
-| `MiniWindow.swift` | The mini window |
+| `MiniWindow.swift` | The mini window: the panel, floating |
 | `MenuBarLabel.swift` | The menu bar icon's four looks |
-| `MenuContent.swift` | The dropdown menu |
+| `Panel.swift` | The panel (under the menu bar icon, in the mini window, on Home) and today's timeline |
 | `Ring.swift` | The small ring in the menu bar |
 | `DayTimeline.swift` | The picture of your day |
 | **`Tuloy/System/`** | |
@@ -225,6 +238,6 @@ Open **Connection** first: it shows which step isn't done.
 | `Demo.swift` | Demo mode |
 | **Everything else** | |
 | `HOW_IT_WORKS.md` | Everything Tuloy stores and does, step by step |
-| `helpideas.txt` | Ideas for what to add next |
+| `suggestions.txt`, `brainstorm.txt`, `branding.txt` | Ideas, the plan for the chosen ones, and logo and colour options |
 | `Tests/` | Tests for the schedule, the planner, everything read from or written for Claude Code, and every screen |
 | `Package.swift`, `Makefile`, `scripts/`, `Support/Info.plist` | Building the app |

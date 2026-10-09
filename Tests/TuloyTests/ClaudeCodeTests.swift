@@ -105,12 +105,14 @@ import Testing
     }
 
     @Test func theSignInScriptRunsClaudeCodesOwnSignIn() async throws {
-        let script = ClaudeCLI.signInScript(for: URL(fileURLWithPath: "/Users/you/.local/bin/claude"))
+        let marker = URL(fileURLWithPath: "/Users/you/.tuloy/signed-in")
+        let script = ClaudeCLI.signInScript(for: URL(fileURLWithPath: "/Users/you/.local/bin/claude"), marker: marker)
         #expect(script.hasPrefix("#!/bin/zsh\n"))
         #expect(script.contains("\n'/Users/you/.local/bin/claude' auth login\n"))
+        #expect(script.contains("\ntouch '/Users/you/.tuloy/signed-in'\n"))   // how Tuloy knows it finished
 
         // A path with a space and a quote must still be one argument, and the script must still parse.
-        let odd = ClaudeCLI.signInScript(for: URL(fileURLWithPath: "/Users/o'neil smith/bin/claude"))
+        let odd = ClaudeCLI.signInScript(for: URL(fileURLWithPath: "/Users/o'neil smith/bin/claude"), marker: marker)
         #expect(odd.contains(#"'/Users/o'\''neil smith/bin/claude' auth login"#))
         let file = FileManager.default.temporaryDirectory.appending(path: "tuloy-sign-in-\(UUID().uuidString).command")
         defer { try? FileManager.default.removeItem(at: file) }
