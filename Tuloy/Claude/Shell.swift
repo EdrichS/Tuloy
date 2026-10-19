@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runs a program and collects its output, giving up after `timeout` seconds.
+/// Runs a program and collects its output, giving up after `timeout` seconds (nil: never).
 enum Shell {
     struct Result: Sendable {
         var status: Int32
@@ -11,7 +11,7 @@ enum Shell {
     /// `input` is written to the program's standard input, then closed. Cancelling the task that
     /// called this stops the program.
     static func run(_ program: URL, arguments: [String], environment: [String: String]? = nil,
-                    directory: URL? = nil, input: Data? = nil, timeout: TimeInterval) async throws -> Result {
+                    directory: URL? = nil, input: Data? = nil, timeout: TimeInterval?) async throws -> Result {
         let process = Process()
         process.executableURL = program
         process.arguments = arguments
@@ -51,7 +51,9 @@ enum Shell {
         // Ask it to stop at the deadline, and insist a few seconds later. The deadline counts only time
         // the Mac is awake: a ping caught by sleep isn't "too slow", and gets its full time on waking.
         let watchdog = Task.detached {
-            guard (try? await Task.sleep(for: .seconds(timeout), tolerance: nil, clock: SuspendingClock())) != nil else { return false }
+            guard let timeout,
+                  (try? await Task.sleep(for: .seconds(timeout), tolerance: nil, clock: SuspendingClock())) != nil
+            else { return false }
             kill(pid, SIGTERM)
             if (try? await Task.sleep(for: .seconds(3))) != nil { kill(pid, SIGKILL) }
             return true

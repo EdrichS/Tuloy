@@ -182,7 +182,8 @@ enum ClaudeCLI {
         do {
             let run = try await Shell.run(claude, arguments: messageArguments(for: message),
                                           environment: environment(for: claude, forPing: false), directory: folder,
-                                          input: Data(message.prompt.utf8), timeout: TimeInterval(max(1, message.minutesAllowed) * 60))
+                                          input: Data(message.prompt.utf8),
+                                          timeout: message.minutesAllowed > 0 ? TimeInterval(message.minutesAllowed * 60) : nil)
             return MessageOutput.read(run.output, status: run.status, errors: run.errors)
         } catch {
             return MessageOutcome(result: .failure(error as? PingError ?? .failed("Stopped.")))

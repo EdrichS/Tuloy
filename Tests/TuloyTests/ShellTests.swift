@@ -37,4 +37,9 @@ import Testing
             try await Shell.run(URL(fileURLWithPath: "/nonexistent/claude"), arguments: [], timeout: 5)
         }
     }
+
+    @Test func noLimitMeansNoLimit() async throws {
+        let result = try await Shell.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "sleep 1; echo done"], timeout: nil)
+        #expect(result.output == "done\n")
+    }
 }

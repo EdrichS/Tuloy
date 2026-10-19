@@ -547,10 +547,17 @@ struct MessageEditor: View {
                 Text("Use my Claude Code setup")
                 Text("Your CLAUDE.md files, MCP servers, hooks and plugins. Off: Claude Code's safe mode, without them.")
             }
-            Picker("Stop it after", selection: $draft.minutesAllowed) {
+            Picker(selection: $draft.minutesAllowed) {
                 ForEach([10, 30, 60, 120], id: \.self) { minutes in
                     Text(minutes < 60 ? "\(minutes) minutes" : minutes == 60 ? "1 hour" : "\(minutes / 60) hours").tag(minutes)
                 }
+                Divider()
+                Text("Never: let it finish").tag(0)
+            } label: {
+                Text("Stop it after")
+                Text(draft.minutesAllowed == 0
+                     ? "No limit: it runs until Claude is done. Stop is always there, and quitting Tuloy stops it too."
+                     : "A safety net, in case Claude gets stuck or a job runs longer than you meant.")
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Extra instructions")

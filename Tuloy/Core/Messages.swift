@@ -30,7 +30,8 @@ struct ScheduledMessage: Codable, Equatable, Identifiable, Sendable {
     /// three hours late. Off: skip it, and note that it was missed.
     var sendsLate = true
     var notifies = true
-    /// How long it may run before Tuloy stops it, in minutes.
+    /// How long it may run before Tuloy stops it, in minutes. 0: no limit, it runs until Claude is done
+    /// (or you press Stop).
     var minutesAllowed = 30
     /// Switched off: kept, but never sent. A one-off switches itself off once sent.
     var isOn = true
