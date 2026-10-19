@@ -215,6 +215,17 @@ class Engine {
         await ping(.manual)
     }
 
+    /// The refresh arrow beside the usage number. A ping only refreshes the number while a
+    /// window is open. With none open it would start one, so this refuses and says why.
+    func refreshUsage() async {
+        now = clock.now
+        guard currentWindow != nil else {
+            say("No window is open, so there's no usage to refresh. Ping Now would start one.", good: false)
+            return
+        }
+        await ping(.manual)
+    }
+
     func togglePause() {
         isPaused.toggle()
         // On resume, start fresh instead of sending pings missed while paused.
@@ -333,7 +344,9 @@ class Engine {
         weekLimitUntil = nil
         holdUntil = nil
         failures = 0
-        record(PingRecord(date: sentAt, kind: kind, ok: true, resetsAt: currentWindow?.resetsAt, tokens: report.tokens))
+        let usedUp = report.blockedBy == .window
+        record(PingRecord(date: sentAt, kind: kind, ok: true, resetsAt: currentWindow?.resetsAt,
+                          note: usedUp ? "Window used up" : nil, tokens: report.tokens))
 
         guard let window = currentWindow else { return }
         // Was the window already running? Yes if Tuloy knew of it, or if it began well before this ping.
@@ -345,11 +358,22 @@ class Engine {
         if kind == .scheduled, let due {
             notePlan(due: due, sentAt: sentAt, window: window, alreadyOpen: alreadyOpen)
         }
-        // Any ping that got through covers a scheduled one that was waiting.
-        if let due, due <= sentAt { scheduleNextPing() }
+        // A ping that opened a window has done the scheduled ping's job, whoever sent it. One that
+        // landed in a window already open has started nothing: the scheduled ping stays waiting,
+        // and goes out when that window ends.
+        if !alreadyOpen, let due, due <= sentAt { scheduleNextPing() }
 
         let fresh = Format.when(window.resetsAt, now: now)
-        say(alreadyOpen ? "Pinged. Your window was already open; it resets at \(fresh)." : "Pinged. Fresh window at \(fresh).")
+        if usedUp {
+            say("This window is used up. It resets at \(fresh).", good: false)
+        } else if alreadyOpen {
+            say("Pinged. Your window was already open; it resets at \(fresh).")
+        } else if kind == .manual, let next = nextPingAt, next > sentAt, next < window.resetsAt {
+            // You started a window by hand that will still be open at the next scheduled ping.
+            say("Pinged. Fresh window at \(fresh). Your \(Format.time(next)) ping will wait for this window to end.")
+        } else {
+            say("Pinged. Fresh window at \(fresh).")
+        }
         warnIfNearlyOut()
     }
 

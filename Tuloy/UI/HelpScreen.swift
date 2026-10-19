@@ -39,7 +39,7 @@ struct HelpContent: View {
             }
 
             section("When your Mac is asleep") {
-                Text("A sleeping or closed Mac can't ping. Tuloy catches up as soon as it wakes, if that's within 5 hours. For a ping that never misses, let your iPhone send the early one:")
+                Text("A sleeping or closed Mac pings late, if at all: only when macOS happens to wake it briefly, or when you open it, and only if that's within 5 hours. For a ping that's on time every day, let your iPhone send the early one:")
                     .fixedSize(horizontal: false, vertical: true)
                 Card {
                     VStack(alignment: .leading, spacing: 6) {
@@ -212,7 +212,7 @@ struct AboutContent: View {
     }
 
     private var version: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.9"
     }
 
     private func section(_ title: String, _ text: String) -> some View {

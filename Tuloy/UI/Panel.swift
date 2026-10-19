@@ -28,7 +28,7 @@ struct PanelContent: View {
                         HStack(spacing: 4) {
                             Text(age)
                             Button {
-                                Task { await model.pingNow() }
+                                Task { await model.refreshUsage() }
                             } label: {
                                 Image(systemName: "arrow.clockwise")
                             }
@@ -94,17 +94,18 @@ struct PanelContent: View {
         }
     }
 
-    @ViewBuilder
+    /// No keyboard shortcut on purpose: a ping spends tokens and can start a window,
+    /// so it should take a deliberate click.
     private var pingButton: some View {
-        let button = Button(model.isPinging ? "Pinging…" : "Ping Now") {
+        Button(model.isPinging ? "Pinging…" : "Ping Now") {
             Task { await model.pingNow() }
         }
-        .buttonStyle(TuloyButtonStyle(prominent: model.attention == nil))
+        // While resting or waiting on a fix, a ping can't help, so it isn't the bright button.
+        .buttonStyle(TuloyButtonStyle(prominent: model.status == .running))
         .disabled(model.isPinging)
-        .help("Start a window this minute")
-
-        // Under the menu bar icon, Return pings.
-        if place == .popover { button.keyboardShortcut(.defaultAction) } else { button }
+        .help(model.currentWindow == nil
+              ? "Starts a new 5-hour window right now"
+              : "Sends one ping. Your window is already open, so this only refreshes your usage")
     }
 
     private func go(_ window: WindowID, _ tab: MainTab) {
@@ -296,7 +297,7 @@ struct MoreMenu: View {
     /// "✓ Tue 6:00 AM · Scheduled · Fresh at 11:00 AM · 350 tokens"
     private func line(for ping: PingRecord) -> String {
         let cost = ping.tokens.map { "\($0) tokens" }
-        return ["\(ping.ok ? "✓" : "✕") \(Format.time(ping.date))", ping.kindText, ping.outcomeText, cost]
+        return ["\(ping.mark) \(Format.time(ping.date))", ping.kindText, ping.outcomeText, cost]
             .compactMap { $0 }.joined(separator: " · ")
     }
 }

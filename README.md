@@ -8,7 +8,7 @@ A small macOS app that starts your Claude usage window on a schedule, so it rese
 
 Claude's usage limit runs in 5-hour windows that start with your first message. Tell Tuloy when you want a fresh window (say 11:00 AM) and it sends a tiny message through Claude Code at 6:00 AM. By the time you're deep in work, your allowance resets.
 
-For how it all works inside, step by step, see [HOW_IT_WORKS.md](HOW_IT_WORKS.md). Ideas for what to add next are in [helpideas.txt](helpideas.txt).
+For how it all works inside, step by step, see [HOW_IT_WORKS.md](HOW_IT_WORKS.md).
 
 ## Requirements
 
@@ -26,7 +26,7 @@ Tuloy uses nothing else: no packages, no accounts, no server.
 make install
 ```
 
-That builds Tuloy, copies it to /Applications and starts it. The first time, a welcome window walks you through four steps: what Tuloy does, connecting to Claude, picking your fresh time, and where to find it afterwards. Run `make install` again after changing the code to update the copy that's running.
+That builds Tuloy for both Apple silicon and Intel Macs, copies it to /Applications and starts it. The first time, a welcome window walks you through four steps: what Tuloy does, connecting to Claude, picking your fresh time, and where to find it afterwards. Run `make install` again after changing the code to update the copy that's running.
 
 | Command | What it does |
 |---|---|
@@ -92,8 +92,8 @@ Click the menu bar icon for a small panel:
  Open Tuloy    Mini Window        (…)
 ```
 
-- **Ping Now** and **Pause** are right there. Return pings; Escape closes the panel.
-- **↻** refreshes the usage number. It sends one ping, and says so.
+- **Ping Now** and **Pause** are right there. Escape closes the panel. Ping Now has no keyboard shortcut on purpose: a ping spends tokens and can start a window.
+- **↻** refreshes the usage number. It sends one ping, and says so. It never starts a window: with none open, it tells you so instead.
 - **Next ping** always comes with its reason.
 - The last line says what just happened, for a few seconds after anything you do.
 - **(…)** holds Settings, Connection, Help, Recent Pings and Quit.
@@ -134,7 +134,8 @@ open -n build/Tuloy.app --args --demo --setup
 - **Pings go through Claude Code.** Tuloy runs `claude -p` and never reads your login: Anthropic only allows subscription logins inside its own apps, so the official `claude` command does the talking.
 - **Each ping is as small as it gets.** The smallest model (Haiku) with thinking off, no tools, none of your hooks, plugins or CLAUDE.md, and no saved transcript. The message is "hi" and the reply is one word. Recent pings shows how many tokens each one used.
 - **Missed pings still go out.** Tuloy checks the clock every 30 seconds instead of setting one long timer. If your Mac was asleep, off or offline when a ping was due, it sends it as soon as it can, as long as that can still help (within 5 hours).
-- **It waits for an open window.** A ping only starts a window if none is open. If you were up late and a window is still running at ping time, Tuloy waits for it to end, then pings.
+- **It waits for an open window.** A ping only starts a window if none is open. If you were up late and a window is still running at ping time, Tuloy waits for it to end, then pings. Pinging by hand in the meantime doesn't cancel that.
+- **One Tuloy at a time.** Open a second copy and it brings the first one forward and quits, so two can never ping on the same schedule.
 - **Failed pings retry, when retrying can help.** After 1 minute, then 2, 5, 15 and 30. If it's something only you can fix, like signing in, Tuloy tries once, tells you, and then waits: it looks in with a free check (no message sent) and pings again as soon as you've fixed it.
 - **It checks before it matters.** An hour before each scheduled ping, the same free check runs. If Claude Code has been signed out, you hear about it while there's still time.
 - **It warns you when you're nearly out.** At 80% and 95% of a window, and of your week. Only on a current reading, and once each.
@@ -169,7 +170,7 @@ Already have a status line script? Change `input=$(cat)` to `input=$(tee ~/.tulo
 
 ## When your Mac is closed
 
-A closed or sleeping Mac can't ping. If your Mac is usually asleep at ping time, let your phone send the early ping, and let Tuloy do the rest. These steps are in Help too.
+A closed or sleeping Mac can't be relied on to ping. macOS may wake it briefly now and then, and Tuloy will ping in one of those moments if it's long enough, but that can be half an hour late or not at all. If your Mac is usually asleep at ping time, let your phone send the early ping, and let Tuloy do the rest. These steps are in Help too.
 
 **iPhone (recommended):**
 
@@ -197,6 +198,7 @@ Open **Connection** first: it shows which step isn't done.
 | Claude Code isn't using your Claude plan | It's set up with an API key. Sign in with your Claude account instead |
 | Couldn't reach Claude | Check your internet. Tuloy retries on its own |
 | Weekly limit used up | Nothing to do. Tuloy rests until it resets |
+| This window is used up | You've reached this window's limit. Tuloy shows when it resets |
 
 **Recent pings** on Home, and in the menu, lists the last pings: when they went out, what came back, and how many tokens each used.
 
@@ -238,6 +240,10 @@ Open **Connection** first: it shows which step isn't done.
 | `Demo.swift` | Demo mode |
 | **Everything else** | |
 | `HOW_IT_WORKS.md` | Everything Tuloy stores and does, step by step |
-| `suggestions.txt`, `brainstorm.txt`, `branding.txt` | Ideas, the plan for the chosen ones, and logo and colour options |
+| `LICENSE` | The MIT licence: anyone may use, change and share the code |
 | `Tests/` | Tests for the schedule, the planner, everything read from or written for Claude Code, and every screen |
 | `Package.swift`, `Makefile`, `scripts/`, `Support/Info.plist` | Building the app |
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). Tuloy is an independent project and is not affiliated with Anthropic.

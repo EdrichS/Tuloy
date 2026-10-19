@@ -295,20 +295,78 @@ struct World {
     }
 
     // 13
-    @Test func pingNowCoversAScheduledPingThatWasWaiting() async {
+    @Test func aRefreshDoesNotCancelAScheduledPingThatIsWaiting() async {
         let world = World()
         world.clock.now = october(5, 5)
         let open = world.reading(40, resets: october(5, 8))
         world.engine.take(window: open, week: nil)
         await world.go(to: october(5, 6, 30))   // the scheduled ping is due, but waiting for 8:00
 
-        world.claude.next(PingOutcome(result: .success(PingReport(window: open, tokens: 350)), style: .lean, version: "2.1.288"))
-        await world.engine.pingNow()
-        #expect(world.engine.nextPingAt == october(6, 6, 0, 15))
+        // You refresh. The ping lands in the window that's already open, so it has started nothing.
+        world.claude.next(PingOutcome(result: .success(PingReport(window: world.reading(41, resets: october(5, 8)), tokens: 350)),
+                                      style: .lean, version: "2.1.288"))
+        await world.engine.refreshUsage()
         #expect(world.engine.notice?.text.contains("already open") == true)
+        #expect(world.engine.nextPingAt == due)   // still waiting, not put off till tomorrow
 
         await world.run(until: october(5, 9))
-        #expect(world.claude.pings == 1)   // nothing sent again at 8:01
+        #expect(world.claude.pings == 2)   // and it goes out when the window ends
+        #expect(world.engine.history.first?.kind == .scheduled)
+        #expect(world.engine.window?.resetsAt == october(5, 13))
+        #expect(world.engine.nextPingAt == october(6, 6, 0, 15))
+    }
+
+    @Test func pingNowThatOpensAWindowCoversAScheduledPing() async {
+        let world = World()
+        world.claude.next(world.failure(.timedOut))
+        await world.go(to: due)   // the scheduled ping fails; Tuloy will retry in a minute
+        world.clock.now = due.addingTimeInterval(30)
+        await world.engine.pingNow()   // you don't wait: your ping opens the window
+
+        #expect(world.engine.nextPingAt == october(6, 6, 0, 15))
+        await world.run(until: october(5, 6, 30))
+        #expect(world.claude.pings == 2)   // no third ping
+    }
+
+    @Test func theRefreshArrowNeverStartsAWindow() async {
+        let world = World()
+        await world.engine.refreshUsage()   // no window open
+        #expect(world.claude.pings == 0)
+        #expect(world.engine.notice?.text.hasPrefix("No window is open") == true)
+
+        world.engine.take(window: world.reading(40, resets: october(5, 8)), week: nil)
+        world.claude.next(PingOutcome(result: .success(PingReport(window: world.reading(42, resets: october(5, 8)), tokens: 350)),
+                                      style: .lean, version: "2.1.288"))
+        await world.engine.refreshUsage()   // a window is open: this only updates the number
+        #expect(world.claude.pings == 1)
+        #expect(world.engine.usagePercent == 42)
+    }
+
+    @Test func aWindowStartedByHandSaysWhatItDoesToTheSchedule() async {
+        let world = World()   // 4:00 AM; the scheduled ping is at 6:00
+        await world.engine.pingNow()
+        #expect(world.engine.window?.resetsAt == october(5, 9))
+        #expect(world.engine.notice?.text.contains("will wait for this window to end") == true)
+
+        await world.run(until: october(5, 9, 2))
+        #expect(world.claude.pings == 2)   // the scheduled ping waited, then went at 9:01
+        #expect(world.engine.history.first?.kind == .scheduled)
+    }
+
+    @Test func aPingAtTheLimitSaysTheWindowIsUsedUp() async {
+        let world = World()
+        world.clock.now = due
+        var report = world.claude.freshWindow(percent: 100)
+        report.blockedBy = .window
+        report.tokens = 0
+        world.claude.next(PingOutcome(result: .success(report), style: .lean, version: "2.1.288"))
+        await world.engine.tick()
+
+        #expect(world.engine.notice?.text.hasPrefix("This window is used up.") == true)
+        let record = try! #require(world.engine.history.first)
+        #expect(record.hitTheLimit)
+        #expect(record.mark == "–")
+        #expect(record.outcomeText.hasPrefix("Window used up, resets"))
     }
 
     // 14
@@ -347,8 +405,9 @@ struct World {
     // 16
     @Test func theCommandThatWorkedIsRemembered() async {
         let world = World()
+        world.clock.now = due
         world.claude.next(PingOutcome(result: .success(world.claude.freshWindow()), style: .plain, version: "2.0.0"))
-        await world.go(to: due)
+        await world.engine.tick()
         #expect(world.engine.pingMemory == PingMemory(style: .plain, version: "2.0.0"))
 
         await world.go(to: october(6, 6, 0, 15))
@@ -668,5 +727,19 @@ struct World {
         """
         #expect(PingOutput.version(in: output) == "2.1.288")
         #expect(PingOutput.version(in: "not json") == nil)
+    }
+}
+
+@Suite struct OnlyCopyTests {
+    @Test func aSecondTuloyIsTurnedAway() throws {
+        let lock = FileManager.default.temporaryDirectory.appending(path: "tuloy-lock-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: lock) }
+
+        let first = try #require(OnlyCopy.claim(at: lock))
+        #expect(OnlyCopy.claim(at: lock) == nil)   // already running
+
+        close(first)                               // the first one quits
+        let next = try #require(OnlyCopy.claim(at: lock))
+        close(next)
     }
 }

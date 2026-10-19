@@ -138,8 +138,8 @@ struct HomeContent: View {
                 }
                 ForEach(model.history.prefix(5), id: \.date) { ping in
                     HStack(spacing: 8) {
-                        Image(systemName: ping.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(ping.ok ? .green : .orange)
+                        Image(systemName: ping.hitTheLimit ? "minus.circle.fill" : ping.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(ping.hitTheLimit ? AnyShapeStyle(.secondary) : ping.ok ? AnyShapeStyle(.green) : AnyShapeStyle(.orange))
                         Text(Format.time(ping.date))
                             .monospacedDigit()
                             .frame(width: 92, alignment: .leading)

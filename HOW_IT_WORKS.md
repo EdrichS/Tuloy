@@ -161,6 +161,7 @@ Saved in the same place, so quitting or restarting loses nothing.
 | `~/.tuloy/statusline.json` | Claude Code, through the script | The latest live usage (4.4). Only when live usage is connected. |
 | `~/.tuloy/statusline.sh` | Tuloy, on Connect | The script Claude Code runs as its status line. |
 | `~/.tuloy/statusline-original.sh` | Tuloy, on Connect | The status line command you had before, so it keeps running. Absent if you had none. |
+| `~/.tuloy/running.lock` | Tuloy | Empty. Held open while Tuloy runs, so a second copy can tell. |
 | `~/.tuloy/settings-backup.json` | Tuloy, on Connect and Disconnect | A copy of Claude Code's settings file from just before Tuloy changed it. |
 | `~/.tuloy/Sign in to Claude Code.command` | Tuloy, when you choose Sign In… | A short script that Terminal runs: it starts Claude Code's own sign-in (5.13). |
 | `~/.claude/settings.json` | You and Claude Code | Claude Code's settings. Tuloy changes only the `statusLine` entry, and only when you choose Connect or Disconnect. |
@@ -251,6 +252,7 @@ When live usage is connected, Claude Code hands its status line data to Tuloy's 
 
 ### 5.1 When it starts
 
+0. Checks it's the only Tuloy running, by taking a lock on `~/.tuloy/running.lock`. If another copy holds it, this one brings that copy forward and quits. (macOS releases the lock when Tuloy quits, however it quits. Demo mode doesn't take part.)
 1. Makes `~/.tuloy` if it isn't there.
 2. Tells macOS not to nap the app, so its clock stays on time. (The Mac itself can still sleep.)
 3. Asks permission to send notifications, if they're on.
@@ -357,8 +359,8 @@ Some examples, with a fresh window at 11:00 AM (ping due 6:00:15):
 4. Clear the hold and the failure count.
 5. Add it to Recent pings, and to the list of windows: "opened by Tuloy", or "already open" if Tuloy knew of it or it began more than about 20 minutes before the ping.
 6. If the fresh window isn't within 10 minutes of the one you asked for, write down why (5.17).
-7. If a scheduled ping was due, it's now done: work out the next one (5.3). This is also true of a Ping Now that happens to land while one was waiting.
-8. Say what happened (5.18): "Pinged. Fresh window at 8:00 PM." or "Pinged. Your window was already open; it resets at 8:00 PM."
+7. If a scheduled ping was due and this ping opened a window, the scheduled ping is done: work out the next one (5.3). That's true whoever sent it, so a Ping Now that opens a window counts. A ping that landed in a window already open has started nothing, so the scheduled ping stays waiting and goes out when that window ends.
+8. Say what happened (5.18): "Pinged. Fresh window at 8:00 PM.", or "Pinged. Your window was already open; it resets at 8:00 PM.", or, at the limit, "This window is used up. It resets at 8:00 PM." (Recent pings then shows a dash, not a tick.) If you started a window by hand that will still be open at the next scheduled ping, the line adds that the scheduled ping will wait for it.
 
 **If your week is used up:** save the week reading, rest until it resets, and add a "Weekly limit used up" line to Recent pings.
 
@@ -431,7 +433,8 @@ The first that applies:
 ### 5.10 Pause, resume, Ping Now
 
 - **Pause** stops all pings. **Resume** plans the next scheduled ping from now, so pings missed while paused aren't sent late.
-- **Ping Now** sends a ping whatever the Planner thinks, and handles the result the same way (5.5).
+- **Ping Now** sends a ping whatever the Planner thinks, and handles the result the same way (5.5). With no window open, that starts one. It has no keyboard shortcut, on purpose.
+- **The refresh arrow** beside the usage number sends a ping only while a window is open, when it can do nothing but update the number. With no window open it refuses and says why, so it can never start one.
 - **Changing the schedule** plans again from now and clears any hold.
 - **Changing time zone** plans again, unless a ping is already due (that one goes out first).
 
@@ -555,7 +558,7 @@ These are the places where Tuloy follows Claude Code's documentation or a carefu
 
 **A Claude Code change to watch for.** Claude Code's documentation says "bare mode" will become the default for `claude -p` in a future release, and bare mode doesn't read your Claude login. There is no documented way to ask for the normal mode today. If that ships, pings will fail with "The ping couldn't use your Claude login", and `ClaudeCLI.swift` will need whatever new flag turns bare mode off. Tuloy already removes the environment variable that forces bare mode, and the error message tells this case apart from being signed out.
 
-**When your Mac is asleep.** Tuloy can't wake it. The README shows how to have an iPhone send the early ping instead.
+**When your Mac is asleep.** Tuloy can't wake it. With Power Nap on, macOS wakes a sleeping Mac briefly from time to time, and Tuloy pings in one of those moments if it lasts long enough. On 8 October 2026 that made three pings 7, 10 and 31 minutes late. A ping's 90-second limit also counts time asleep, so a Mac that dozes off mid-ping can record a false "didn't answer in time". The README shows how to have an iPhone send the early ping instead.
 
 ---
 

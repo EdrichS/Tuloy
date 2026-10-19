@@ -21,7 +21,7 @@ struct ScheduleScreen: View {
             } header: {
                 Text("When you want your allowance to refill")
             } footer: {
-                Text(model.schedule.summary)
+                Footer(model.schedule.summary)
             }
 
             Section {
@@ -29,10 +29,25 @@ struct ScheduleScreen: View {
             } header: {
                 Text("Your day")
             } footer: {
-                Text("The pale block is the early window Tuloy opens for you. Solid and dashed blocks are fresh ones. Mac asleep at ping time? Tuloy pings as soon as it wakes, and Help shows how to have your iPhone do it.")
+                Footer("The pale block is the early window Tuloy opens for you. Solid and dashed blocks are fresh ones. Mac asleep at ping time? Tuloy pings when it next wakes, which can be late. Help shows how to have your iPhone do it on time.")
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The explanation under a group of settings. Left-aligned: macOS would push it to the right edge.
+struct Footer: View {
+    var text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -77,7 +92,7 @@ struct PreferencesScreen: View {
             } header: {
                 Text("Menu bar icon")
             } footer: {
-                Text("A problem always shows ⚠, whatever you pick. The ring shows a percentage once Claude Code reports one.")
+                Footer("A problem always shows ⚠, whatever you pick. The ring shows a percentage once Claude Code reports one.")
             }
 
             Section("Windows") {

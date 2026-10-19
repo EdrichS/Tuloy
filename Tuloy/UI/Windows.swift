@@ -223,8 +223,15 @@ extension PingRecord {
         }
     }
 
+    /// True for a ping that got through only to find the window already used up.
+    var hitTheLimit: Bool { ok && note != nil }
+
+    /// A tick, a cross, or a dash for a ping that found the window used up.
+    var mark: String { hitTheLimit ? "–" : ok ? "✓" : "✕" }
+
     /// What came of it: the problem, or when the window resets.
     var outcomeText: String {
+        if hitTheLimit, let note, let resetsAt { return "\(note), resets \(Format.time(resetsAt))" }
         if let note { return note }
         if let resetsAt { return "Fresh at \(Format.time(resetsAt))" }
         return ok ? "Sent" : "Didn't get through"

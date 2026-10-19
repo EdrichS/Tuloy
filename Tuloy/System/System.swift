@@ -64,3 +64,18 @@ enum LoginItem {
         }
     }
 }
+
+/// Makes sure only one real Tuloy runs at a time. Two would both ping, on the same schedule.
+enum OnlyCopy {
+    /// Takes the lock file, or returns nil if another Tuloy already holds it. The lock is held for as
+    /// long as the returned file stays open, and macOS lets go of it when Tuloy quits, however it quits.
+    static func claim(at url: URL) -> Int32? {
+        let file = open(url.path(percentEncoded: false), O_CREAT | O_RDWR, 0o600)
+        guard file >= 0 else { return -1 }   // can't tell either way: don't stop Tuloy starting
+        guard flock(file, LOCK_EX | LOCK_NB) == 0 else {
+            close(file)
+            return nil
+        }
+        return file
+    }
+}

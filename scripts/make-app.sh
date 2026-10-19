@@ -4,8 +4,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-swift build -c release
-binary="$(swift build -c release --show-bin-path)/Tuloy"
+# One app for both kinds of Mac: Apple silicon and Intel.
+swift build -c release --arch arm64 --arch x86_64
+binary="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Tuloy"
 
 app=build/Tuloy.app
 rm -rf "$app"

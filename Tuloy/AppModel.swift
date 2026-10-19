@@ -65,6 +65,8 @@ final class AppModel: Engine {
     @ObservationIgnored private var activity: NSObjectProtocol?
     @ObservationIgnored private let network = NWPathMonitor()
     @ObservationIgnored private var folderWatch: DispatchSourceFileSystemObject?
+    /// Held open for as long as Tuloy runs, so a second copy can tell.
+    @ObservationIgnored private var runningLock: Int32?
 
     init(clock: any Clock, claude: any ClaudeCode, storage: any Storage, notices: any Notices) {
         super.init(clock: clock, claude: claude, storage: storage, notices: notices, calendar: .current)
@@ -240,6 +242,13 @@ final class AppModel: Engine {
     /// Decides what to show when Tuloy starts: the welcome the first time, the main
     /// window when you opened the app yourself, nothing when it started by itself at login.
     func didLaunch(atLogin: Bool) {
+        if !Demo.isOn, !isOnlyCopy() {
+            // Another Tuloy is already running and pinging. Bring it forward and bow out.
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            others.first { $0 != .current }?.activate()
+            NSApp.terminate(nil)
+            return
+        }
         start()
         if Demo.isOn {
             open(Demo.showsSetup ? .setup : .main)
@@ -253,6 +262,13 @@ final class AppModel: Engine {
             open(.main)
         }
         if miniAtLaunch { open(.mini) }
+    }
+
+    /// True if this is the only real Tuloy running. (Demo mode doesn't count, and isn't counted.)
+    private func isOnlyCopy() -> Bool {
+        try? FileManager.default.createDirectory(at: Paths.tuloy, withIntermediateDirectories: true)
+        runningLock = OnlyCopy.claim(at: Paths.tuloy.appending(path: "running.lock"))
+        return runningLock != nil
     }
 
     // MARK: - Demo mode
