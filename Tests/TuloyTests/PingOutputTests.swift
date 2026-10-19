@@ -37,6 +37,20 @@ import Testing
         #expect(report.blockedBy == nil)
     }
 
+    @Test func noticesAnAPIKey() {
+        #expect(!PingOutput.usesAPIKey(in: #"{"type":"system","subtype":"init","apiKeySource":"none"}"#))
+        #expect(PingOutput.usesAPIKey(in: #"{"type":"system","subtype":"init","apiKeySource":"ANTHROPIC_API_KEY"}"#))
+        #expect(PingOutput.usesAPIKey(in: #"{"type":"system","subtype":"init","apiKeySource":"apiKeyHelper"}"#))
+        #expect(!PingOutput.usesAPIKey(in: #"{"type":"system","subtype":"init"}"#))
+    }
+
+    @Test func noticesAPingPaidFromExtraUsage() throws {
+        let free = #"{"status":"allowed","resetsAt":\#(time(in: 5)),"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}"#
+        #expect(try read(rateLimit(free), success).usedExtraUsage == false)
+        let paid = #"{"status":"allowed","resetsAt":\#(time(in: 2)),"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":true}"#
+        #expect(try read(rateLimit(paid), success).usedExtraUsage == true)
+    }
+
     @Test func readsHowMuchIsUsed() throws {
         let info = #"{"status":"allowed_warning","resetsAt":\#(time(in: 2)),"rateLimitType":"five_hour","utilization":0.87}"#
         #expect(try read(rateLimit(info), success).window?.percent == 87)

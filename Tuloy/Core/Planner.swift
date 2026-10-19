@@ -15,7 +15,7 @@ struct Planner: Sendable {
     var isPaused = false
     /// The problem only you can fix, if pings are waiting on one.
     var waitingOn: PingError?
-    /// Set while your weekly limit is used up. Only changes what the forecast says.
+    /// Set while your weekly limit is used up. No ping until then: none could start a window.
     var restingUntil: Date?
 
     enum Decision: Equatable, Sendable {
@@ -47,6 +47,8 @@ struct Planner: Sendable {
 
         // Retrying can't fix this one. Wait until you have.
         if waitingOn != nil { return .wait }
+        // Your week is used up, so a ping could start nothing.
+        if let restingUntil, now < restingUntil { return .wait }
         // A window is already open, so a ping now would start nothing. Wait for it to end.
         if let windowResetsAt, now < windowResetsAt.addingTimeInterval(Planner.grace) { return .wait }
         if let holdUntil, now < holdUntil { return .wait }

@@ -10,6 +10,8 @@ struct PingReport: Equatable, Sendable {
     var blockedBy: Limit?
     /// What the ping cost: every token sent and received, as counted by Claude Code.
     var tokens: Int?
+    /// True if Claude said the ping was paid from your extra usage, because a limit was used up.
+    var usedExtraUsage = false
 
     enum Limit: Sendable {
         case window, week
@@ -21,12 +23,24 @@ enum PingOutput {
 
     /// Returns what the ping reported, or throws if it didn't get through.
     static func read(_ output: String, status: Int32 = 0, errors: String = "", now: Date = Date()) throws -> PingReport {
-        let events = output.split(whereSeparator: \.isNewline).compactMap {
-            try? JSONDecoder().decode(StreamEvent.self, from: Data($0.utf8))
-        }
+        let events = StreamEvent.lines(in: output)
+        let report = limits(in: events, now: now)
+        let result = events.last { $0.type == "result" }
 
+        // A report on your window means the ping reached your plan, even if the reply
+        // itself failed (for example, when you're already at your limit).
+        if report.window != nil || report.blockedBy == .week { return report }
+        if status == 0, result?.isError != true { return report }
+
+        let message = result?.result ?? result?.errors?.first ?? errors
+        throw PingError(message: message.isEmpty ? "Claude Code exited with code \(status)." : message)
+    }
+
+    /// What Claude Code said about your limits, and what the run cost. A ping and a message print the same.
+    static func limits(in events: [StreamEvent], now: Date) -> PingReport {
         var report = PingReport()
         for info in events.compactMap(\.rateLimits) {
+            if info.isUsingOverage == true { report.usedExtraUsage = true }
             let blocked = info.status == "rejected" ? limit(named: info.rateLimitType, resetsAt: info.resetsAt, now: now) : nil
             if let blocked { report.blockedBy = blocked }
 
@@ -47,16 +61,8 @@ enum PingOutput {
             }
         }
 
-        let result = events.last { $0.type == "result" }
-        report.tokens = result?.tokens
-
-        // A report on your window means the ping reached your plan, even if the reply
-        // itself failed (for example, when you're already at your limit).
-        if report.window != nil || report.blockedBy == .week { return report }
-        if status == 0, result?.isError != true { return report }
-
-        let message = result?.result ?? result?.errors?.first ?? errors
-        throw PingError(message: message.isEmpty ? "Claude Code exited with code \(status)." : message)
+        report.tokens = events.last { $0.type == "result" }?.tokens
+        return report
     }
 
     /// Claude Code's version, from the first line it prints. It's there even when the ping fails.
@@ -68,6 +74,20 @@ enum PingOutput {
             if let version = (try? JSONDecoder().decode(Start.self, from: Data(line.utf8)))?.claude_code_version { return version }
         }
         return nil
+    }
+
+    /// True when Claude Code's first line says it's using an API key rather than your Claude plan
+    /// ("apiKeySource" is "none" on a subscription). A ping like that would be billed.
+    static func usesAPIKey(in output: String) -> Bool {
+        struct Start: Decodable {
+            var apiKeySource: String?
+        }
+        for line in output.split(whereSeparator: \.isNewline).prefix(20) {
+            guard let source = (try? JSONDecoder().decode(Start.self, from: Data(line.utf8)))?.apiKeySource else { continue }
+            let text = source.lowercased()
+            return text != "none" && (text.contains("key") || text.contains("anthropic"))
+        }
+        return false
     }
 
     /// Which of your limits a report is about, or nil if it isn't one Tuloy tracks
@@ -98,7 +118,7 @@ enum PingOutput {
 }
 
 /// One line of Claude Code's `stream-json` output (only the parts Tuloy uses).
-private struct StreamEvent: Decodable {
+struct StreamEvent: Decodable {
     var type: String
     var isError: Bool?
     var result: String?
@@ -106,6 +126,29 @@ private struct StreamEvent: Decodable {
     var rateLimits: RateLimitInfo?
     var usage: Usage?
     var modelUsage: [String: ModelUsage]?
+    /// The usage check's figures (UsageOutput.swift).
+    var usageReport: UsageOutput.Report?
+    /// Set when Claude Code answered a slash command itself, without asking Claude.
+    var localCommand: String?
+    /// How many times Claude was asked. 0 for a command Claude Code answers itself.
+    var numTurns: Int?
+    /// The conversation's id, for carrying on with it later.
+    var sessionID: String?
+    /// The model, on the first line.
+    var model: String?
+    /// What Claude tried to do but wasn't allowed to, on the last line.
+    var permissionDenials: [Denial]?
+
+    struct Denial: Decodable {
+        var tool_name: String?
+    }
+
+    /// Every line of output Tuloy can read.
+    static func lines(in output: String) -> [StreamEvent] {
+        output.split(whereSeparator: \.isNewline).compactMap {
+            try? JSONDecoder().decode(StreamEvent.self, from: Data($0.utf8))
+        }
+    }
 
     /// Every token the run used. The per-model list is the most complete, so prefer it.
     var tokens: Int? {
@@ -141,6 +184,7 @@ private struct StreamEvent: Decodable {
         var utilization: Double?       // 0...1
         var resetsAt: Double?          // Unix time
         var unifiedWindows: [String: Window]?
+        var isUsingOverage: Bool?      // true if this message was paid from extra usage
 
         /// Every limit this report covers. Some versions list them all;
         /// others report one at a time.
@@ -152,7 +196,7 @@ private struct StreamEvent: Decodable {
         }
 
         enum CodingKeys: String, CodingKey {
-            case status, rateLimitType, utilization, resetsAt, unifiedWindows
+            case status, rateLimitType, utilization, resetsAt, unifiedWindows, isUsingOverage
         }
 
         init(from decoder: Decoder) throws {
@@ -162,6 +206,7 @@ private struct StreamEvent: Decodable {
             utilization = values.optional(.utilization)
             resetsAt = values.optional(.resetsAt)
             unifiedWindows = values.optional(.unifiedWindows)
+            isUsingOverage = values.optional(.isUsingOverage)
         }
     }
 
@@ -174,6 +219,12 @@ private struct StreamEvent: Decodable {
         case type, result, errors, usage, modelUsage
         case isError = "is_error"
         case rateLimits = "rate_limit_info"
+        case usageReport = "usage_report"
+        case localCommand = "local_command"
+        case numTurns = "num_turns"
+        case sessionID = "session_id"
+        case model
+        case permissionDenials = "permission_denials"
     }
 
     init(from decoder: Decoder) throws {
@@ -185,10 +236,16 @@ private struct StreamEvent: Decodable {
         rateLimits = type == "rate_limit_event" ? values.optional(.rateLimits) : nil
         usage = values.optional(.usage)
         modelUsage = values.optional(.modelUsage)
+        usageReport = values.optional(.usageReport)
+        localCommand = values.optional(.localCommand)
+        numTurns = values.optional(.numTurns)
+        sessionID = values.optional(.sessionID)
+        model = values.optional(.model)
+        permissionDenials = values.optional(.permissionDenials)
     }
 }
 
-private extension KeyedDecodingContainer {
+extension KeyedDecodingContainer {
     /// A value if it's there and the type Tuloy expects, otherwise nil. Claude Code's
     /// output changes between versions, and one surprise shouldn't cost the whole line.
     func optional<T: Decodable>(_ key: Key) -> T? {

@@ -10,6 +10,15 @@ enum Format {
         return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
+    /// "Today", "Yesterday", or "Sat, 17 Oct": a heading for a day's pings.
+    static func dayTitle(_ day: Date, now: Date, calendar: Calendar = .current) -> String {
+        if calendar.isDate(day, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(day, inSameDayAs: yesterday) {
+            return "Yesterday"
+        }
+        return day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+
     /// "Today", "Tomorrow", or the day's name.
     static func day(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) { return "Today" }
@@ -40,6 +49,18 @@ enum Format {
         let minutes = max(0, Int(date.timeIntervalSince(now) / 60))
         if minutes >= 60 { return minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min" }
         return minutes >= 1 ? "\(minutes) min" : "less than a minute"
+    }
+
+    /// The Ultra icon's countdown, short enough to read inside the ring: whole hours ("5h", "4h",
+    /// "3h") while more than two hours are left, then minutes from "120" down to "1". Rounded up,
+    /// so it never says less time is left than there is. Days ("2d") for a rest that runs past 48 hours.
+    static func ringCountdown(to date: Date?, from now: Date) -> String {
+        guard let date else { return "–" }
+        let minutes = max(1, Int((date.timeIntervalSince(now) / 60).rounded(.up)))
+        if minutes <= 120 { return "\(minutes)" }
+        let hours = Int((Double(minutes) / 60).rounded(.up))
+        if hours <= 48 { return "\(hours)h" }
+        return "\(Int((Double(hours) / 24).rounded(.up)))d"
     }
 
     /// "4:59" over an hour, "45m" under, "<1m" at the end, "–" when there's nothing to count to.

@@ -62,6 +62,18 @@ final class AppModel: Engine {
     /// Why connecting or disconnecting didn't work, if it didn't.
     private(set) var liveUsageError: String?
 
+    // MARK: - What macOS allows
+
+    /// Whether launch at login is on, and whether macOS is holding it back.
+    var loginItem = LoginItem.State.off
+    /// True when Tuloy's notifications are switched off in System Settings.
+    private(set) var notificationsBlocked = false
+
+    /// True when you've asked for a notification that macOS won't show.
+    var wantsBlockedNotifications: Bool {
+        notificationsBlocked && (notify || warnNearlyOut || warnWeek)
+    }
+
     @ObservationIgnored private var activity: NSObjectProtocol?
     @ObservationIgnored private let network = NWPathMonitor()
     @ObservationIgnored private var folderWatch: DispatchSourceFileSystemObject?
@@ -94,6 +106,33 @@ final class AppModel: Engine {
         watchForSignIn()
         refreshLiveUsage()
         Task { await checkSetup() }
+        tidyUp()
+        // You may have just changed something in System Settings. Look again whenever Tuloy comes forward.
+        _ = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.refreshPermissions() }
+        }
+        Task { await refreshPermissions() }
+    }
+
+    /// Looks at what macOS allows: launch at login, and notifications.
+    func refreshPermissions() async {
+        guard !Demo.isOn else { return }
+        loginItem = LoginItem.state
+        notificationsBlocked = await SystemNotices.areBlocked()
+    }
+
+    /// Switches launch at login on or off, then looks at what macOS made of it.
+    func setLaunchAtLogin(_ on: Bool) {
+        guard !Demo.isOn else { return }
+        LoginItem.set(on)
+        loginItem = LoginItem.state
+    }
+
+    /// Keeps Tuloy's folder private to you, and lets go of the copy of Claude Code's settings
+    /// a week after Connect or Disconnect made it. (It may hold things you'd rather not keep around.)
+    private func tidyUp() {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: Paths.tuloy.path(percentEncoded: false))
+        StatusLineLink().forgetOldBackup()
     }
 
     /// Checks the clock every 30 seconds instead of setting one long timer,
@@ -163,6 +202,26 @@ final class AppModel: Engine {
             return false
         }
         return NSWorkspace.shared.open(Paths.signInScript)
+    }
+
+    /// Opens Terminal on a conversation one of your messages had, in the same folder, so you can
+    /// carry on with Claude there. Returns false if Terminal couldn't be opened.
+    func continueInTerminal(_ run: MessageRun) async -> Bool {
+        guard let session = run.sessionID else { return false }
+        if Demo.isOn {
+            say("Demo mode: this would open Terminal on that conversation.")
+            return true
+        }
+        guard let claude = await ClaudeCLI.locator.find() else { return false }
+        let folder = run.folder.isEmpty ? Paths.tuloy : URL(fileURLWithPath: (run.folder as NSString).expandingTildeInPath, isDirectory: true)
+        do {
+            try ClaudeCLI.continueScript(for: claude, session: session, folder: folder)
+                .write(to: Paths.continueScript, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: Paths.continueScript.path(percentEncoded: false))
+        } catch {
+            return false
+        }
+        return NSWorkspace.shared.open(Paths.continueScript)
     }
 
     /// The sign-in script leaves a marker in Tuloy's folder when it finishes. macOS tells Tuloy the
@@ -239,6 +298,23 @@ final class AppModel: Engine {
         windowRequests.append(window)
     }
 
+    // MARK: - The Dock icon
+
+    /// The windows open now that put Tuloy in the Dock: all but the mini window, which floats.
+    @ObservationIgnored private var dockWindows: Set<WindowID> = []
+
+    /// Tuloy shows in the Dock (and gets a menu bar of its own) while one of its windows is open,
+    /// so you can find it with Command-Tab and click back to it. With them all closed, it's back
+    /// to being just the menu bar icon.
+    func window(_ id: WindowID, isOpen: Bool) {
+        guard id != .mini, let app = NSApp else { return }
+        if isOpen { dockWindows.insert(id) } else { dockWindows.remove(id) }
+        let policy: NSApplication.ActivationPolicy = dockWindows.isEmpty ? .accessory : .regular
+        guard app.activationPolicy() != policy else { return }
+        app.setActivationPolicy(policy)
+        if policy == .regular { app.activate() }
+    }
+
     /// Decides what to show when Tuloy starts: the welcome the first time, the main
     /// window when you opened the app yourself, nothing when it started by itself at login.
     func didLaunch(atLogin: Bool) {
@@ -286,6 +362,8 @@ enum Paths {
     /// The script Terminal runs for Sign In, and the marker it leaves when it's done.
     static let signInScript = tuloy.appending(path: "Sign in to Claude Code.command")
     static let signedInMarker = tuloy.appending(path: "signed-in")
+    /// The script Terminal runs for Continue in Terminal, on a message's reply.
+    static let continueScript = tuloy.appending(path: "Continue with Claude.command")
     /// Claude Code's own settings. Tuloy only touches this when you choose Connect.
     static let claudeSettings = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/settings.json")
 }

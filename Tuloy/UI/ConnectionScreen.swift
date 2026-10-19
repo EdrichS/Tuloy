@@ -168,7 +168,7 @@ struct ConnectionChecklist: View {
 
     private var liveUsageStep: some View {
         Step(number: 4, state: model.isLiveUsageConnected ? .done : .optional, title: "Live usage (optional)",
-             detail: "Keeps the usage ring and your weekly usage current between pings. It only updates while you use Claude Code in Terminal. The desktop app and claude.ai don't send it.") {
+             detail: "Tuloy already checks your usage every 5 minutes, free. This adds updates the moment you use Claude Code in Terminal, in between. The desktop app and claude.ai don't send them.") {
             if model.isLiveUsageConnected {
                 Button("Disconnect") { model.setLiveUsage(connected: false) }
                     .buttonStyle(TuloyButtonStyle())
@@ -201,7 +201,7 @@ struct ConnectionChecklist: View {
         if let error = model.liveUsageError { return error }
         if let updated = model.liveUsageAt { return "On. Last update \(Format.time(updated))." }
         if model.isLiveUsageConnected { return "Connected. Usage shows up after your next reply in Claude Code in Terminal." }
-        return "Off. Usage still updates with every ping."
+        return model.canCheckUsage ? "Off. Usage still updates every 5 minutes." : "Off. Usage updates only with pings, since the 5-minute check is off (Preferences)."
     }
 }
 

@@ -127,7 +127,20 @@ struct StatusLineLink {
         return json
     }
 
+    /// How long the copy of your settings is kept: long enough to notice anything amiss and put it back.
+    static let backupKept: TimeInterval = 7 * 24 * 60 * 60
+
+    /// Deletes the copy of your settings once it's over a week old.
+    func forgetOldBackup(now: Date = Date()) {
+        let path = backup.path(percentEncoded: false)
+        guard let made = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date,
+              now.timeIntervalSince(made) > StatusLineLink.backupKept
+        else { return }
+        try? FileManager.default.removeItem(at: backup)
+    }
+
     /// Saves the settings file, keeping a copy of the old one and its permissions.
+    /// The copy is readable only by you, and goes after a week (`forgetOldBackup`).
     private func write(_ json: JSONText) throws {
         guard json.object != nil else { throw LinkError.unreadable }
         let path = realSettings.path(percentEncoded: false)
@@ -135,7 +148,11 @@ struct StatusLineLink {
 
         if FileManager.default.fileExists(atPath: path) {
             try? FileManager.default.removeItem(at: backup)
-            try FileManager.default.copyItem(at: realSettings, to: backup)
+            // Made empty and private first, so the copy is never readable by anyone else, even for a moment.
+            guard FileManager.default.createFile(atPath: backup.path(percentEncoded: false), contents: nil,
+                                                 attributes: [.posixPermissions: 0o600])
+            else { throw LinkError.unreadable }
+            try Data(contentsOf: realSettings).write(to: backup)
         }
         try json.text.write(to: realSettings, atomically: true, encoding: .utf8)
         if let permissions {

@@ -8,6 +8,8 @@
 	<string>Tuloy</string>
 	<key>CFBundleExecutable</key>
 	<string>Tuloy</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.edrichsilva.tuloy</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -19,12 +21,12 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.9</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-	<!-- Menu bar only, no Dock icon. -->
+	<!-- Starts as a menu bar app. It shows in the Dock only while one of its windows is open. -->
 	<key>LSUIElement</key>
 	<true/>
 </dict>

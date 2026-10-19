@@ -12,13 +12,24 @@ import Testing
 
     @Test func ringRenders() throws {
         let image = Ring(progress: 0.62, text: "62").image()
-        #expect(image.size == CGSize(width: 20, height: 20))
+        #expect(image.size == CGSize(width: 21, height: 21))
         #expect(image.isTemplate)
 
         try save(Ring(progress: 0.62, text: "62").scaleEffect(4).frame(width: 96, height: 96), as: "ring-usage")
-        try save(Ring(progress: 0.3, text: "3:41").scaleEffect(4).frame(width: 96, height: 96), as: "ring-ultra")
         try save(Ring(progress: 1, text: "100").scaleEffect(4).frame(width: 96, height: 96), as: "ring-full")
-        try save(Ring(progress: 0.8, text: "45m").scaleEffect(4).frame(width: 96, height: 96), as: "ring-minutes")
+        // Ultra: hours, then minutes from 120.
+        for text in ["5h", "3h", "120", "45", "7", "16h"] {
+            try save(Ring(progress: 0.6, text: text).scaleEffect(4).frame(width: 96, height: 96), as: "ring-ultra-\(text)")
+        }
+    }
+
+    @Test func glyphRendersEveryState() throws {
+        for status in [Engine.Status.running, .paused, .resting, .problem] {
+            let image = Glyph.image(for: status)
+            #expect(image.size == CGSize(width: 18, height: 18))
+            #expect(image.isTemplate)
+            try save(Glyph(status: status, size: 72), as: "glyph-\(status)")
+        }
     }
 
     @Test func timelineRenders() throws {
@@ -65,6 +76,31 @@ import Testing
         model.show(.running)
         try save(window(ConnectionContent(model: model)), as: "main-connection-ready", width: 700)
         try save(GuideContent(model: model).padding(20), as: "guide", width: 440)
+    }
+
+    @Test func historyRenders() throws {
+        model.show(.running)
+        #expect(model.history.count > 20)
+        #expect(!model.pingDays.isEmpty)
+        model.mainTab = .history
+        try save(window(HistoryContent(model: model)), as: "main-history", width: 700)
+    }
+
+    @Test func preferencesRender() throws {
+        model.show(.running)
+        try save(Blocked(text: "Notifications for Tuloy are off in System Settings, so none of these can show.",
+                         button: "Open Notifications Settings", action: {}), as: "blocked")
+        try save(MoreBelow(action: {}), as: "more-below")
+    }
+
+    @Test func messagesRender() throws {
+        model.show(.running)
+        #expect(model.messages.count == 2)
+        model.mainTab = .messages
+        try save(window(MessagesContent(model: model)), as: "main-messages", width: 700)
+        try save(RunRow(model: model, run: model.messageRuns[0], isOpenForTest: true).padding(16), as: "message-reply", width: 520)
+        #expect(MessageText.settings(of: model.messages[0]) == "Sonnet · medium effort · ~/Projects/tuloy · Read the folder")
+        #expect(MessageText.schedule(of: model.messages[0], now: model.now).hasPrefix("Every weekday at 8:30"))
     }
 
     @Test func helpRenders() throws {

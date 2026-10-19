@@ -59,13 +59,16 @@ Without the ping, a window that started when you sat down at 9:00 AM wouldn't re
                                  │
                                  ▼
                        menu bar · menu · notification
+
+  every 5 minutes, free:  claude -p /usage  ──▶  UsageOutput  ──▶  your window and week
+  (answered by Claude Code itself: no message to Claude, no tokens, no window started)
 ```
 
 | Folder | What's in it |
 |---|---|
 | `Tuloy/Core/` | The thinking: `Schedule` (when to ping), `Planner` (what to do now, and what happens next), `Engine` (what to do with a ping's result), the data shapes. No clock and no network, so every case has a test. |
-| `Tuloy/Claude/` | Everything that touches Claude Code: running it, reading what it prints, the live usage file. |
-| `Tuloy/UI/` | The menu bar icon and its menu, and the four windows: the main one (Home, Schedule, Connection, Preferences, Help), the welcome, the mini window and the step-by-step guide. |
+| `Tuloy/Claude/` | Everything that touches Claude Code: running it, reading what pings and usage checks print, the live usage file. |
+| `Tuloy/UI/` | The menu bar icon (Tuloy's glyph, the rings), its panel, and the four windows: the main one (Home, History, Schedule, Messages, Connection, Preferences, Help, About), the welcome, the mini window and the step-by-step guide. |
 | `Tuloy/System/` | Notifications, launch at login, demo mode. |
 | `Tuloy/AppModel.swift` | The wiring: runs the loop, listens for waking and reconnecting, opens the windows. It is the Engine plus everything specific to this Mac. |
 
@@ -94,6 +97,7 @@ Saved in macOS's preferences for the app (`com.edrichsilva.tuloy`) the moment yo
 | `openAtLaunch` | yes/no | yes | Show the main window when you open Tuloy. |
 | `miniAtLaunch` | yes/no | no | Show the mini window whenever Tuloy starts. |
 | `isPaused` | yes/no | no | Paused from the menu. |
+| `checksUsage` | yes/no | yes | Check usage every 5 minutes with the free `/usage` (5.19). |
 
 ### 3.2 What Tuloy remembers between launches
 
@@ -104,7 +108,14 @@ Saved in the same place, so quitting or restarting loses nothing.
 | `nextPingAt` | date | The next scheduled ping. Because it's saved, a ping missed while the Mac was off is noticed at the next launch. |
 | `window` | a reading (3.4) | Your current 5-hour window, as last reported. |
 | `week` | a reading (3.4) | Your weekly limit, as last reported. |
-| `history` | list of pings (3.4) | The last 20 pings, newest first. |
+| `history` | list of pings (3.4) | Every ping of the last 31 days, newest first. A run of the same failure is kept as one line with a count. |
+| `pingDays` | a table of days (3.4) | How many pings got through (and didn't) each day, for the last 400 days: the squares on History. |
+| `weekLimitUntil` | date | Set while your weekly limit is used up: Tuloy rests until then. Saved, so a restart doesn't spend a ping finding out again. |
+| `extraUsageOn` | yes/no | Whether your account has paid extra usage on, as the last usage check said (5.20). |
+| `apiKeyInUse` | yes/no | Set when Claude Code's own report says it's using an API key. No ping goes out while it's set (5.20). |
+| `messages` | list of messages (3.4) | Your scheduled messages (5.22). |
+| `messageRuns` | list of runs (3.4) | Each time one went out, or was missed, with the reply. The last month, at most 300. |
+| `usageCheckCost` | number | Set only if a usage check ever used tokens. Checking stops until you switch it on again. |
 | `windows` | list of windows | Every window seen in the last two weeks: when it began and ended, who opened it (Tuloy, or you), and the highest usage seen. Feeds the "Today" bar on Home. |
 | `pingMemory` | a small record | Which ping command last worked (small or plain) and on which Claude Code version. |
 | `planNote` | a sentence | Why today's fresh window isn't when you asked, if it isn't. |
@@ -123,7 +134,8 @@ Saved in the same place, so quitting or restarting loses nothing.
 | `setup` | Whether Claude Code is installed and signed in (from `claude auth status`). |
 | `claudePath` | Where the `claude` command was found. |
 | `windowRequests`, `mainTab` | Windows waiting to be opened, and which screen the main window is showing. |
-| `weekLimitUntil` | Set while your weekly limit is used up. |
+| `usageCheckedAt`, `usageCheckTrouble` | When the usage check last worked, and why the last one didn't, if it didn't. |
+| `lastSleep` | The last gap in the 30-second ticks: when the Mac was asleep. Says why a ping went out late. |
 | `holdUntil`, `failures` | "Don't ping before this" and how many pings have failed in a row. |
 | `liveUsageAt` | When the live usage file last changed. |
 | `isOnline` | Whether the Mac has a connection. |
@@ -150,6 +162,14 @@ Saved in the same place, so quitting or restarting loses nothing.
 | `resetsAt` | When the window resets, if it got through. |
 | `note` | What went wrong, if it didn't. |
 | `tokens` | What it cost, as counted by Claude Code. |
+| `late` | For a scheduled ping that went out more than 2 minutes after its time: when it was due, and why (`asleep`: the Mac was asleep then; `notRunning`: Tuloy wasn't running). |
+| `count`, `firstDate` | For a run of the same failure kept as one line: how many, and when the first was. |
+
+**A scheduled message** (`ScheduledMessage`): `title`, `prompt` (the message), `when` (`once` at a date, `daily` at a time on some weekdays, or `nextFreshWindow`), `model` and `effort` (empty means Claude Code's default), `folder` (empty means none), `access` (`answerOnly`, `read`, `edit`, `full`), `canUseWeb`, `usesYourSetup`, `keepsConversation`, `instructions`, `sendsLate`, `notifies`, `minutesAllowed`, `isOn`, and `nextRun`, when it goes next.
+
+**A run** (`MessageRun`): which message, when it `started` and `finished`, its `outcome` (`running`, `done`, `failed`, `stopped`, `notSent`), the reply or the reason (`text`), `tokens`, the `sessionID` if the conversation was kept, the `model` Claude Code used, what Claude was `refused`, whether it was `late` and why, and the window it landed in (`windowResets`, `openedWindow`).
+
+**A day** (`PingDay`): `sent` (pings that got through), `failed`, and `byYou` (of those sent, how many were Ping Now). Kept for 400 days, long after the full list is gone.
 
 **A report** (`PingReport`): what one ping told Tuloy. It has a `window` reading, a `week` reading, `blockedBy` (`window` or `week` when a limit turned the ping away), and `tokens`. Any of them can be empty.
 
@@ -157,20 +177,21 @@ Saved in the same place, so quitting or restarting loses nothing.
 
 | File | Who writes it | What it is |
 |---|---|---|
-| `~/.tuloy/` | Tuloy | Tuloy's folder. Pings run from here so they never pick up a project's settings. |
+| `~/.tuloy/` | Tuloy | Tuloy's folder, readable only by you. Pings and usage checks run from here so they never pick up a project's settings. |
 | `~/.tuloy/statusline.json` | Claude Code, through the script | The latest live usage (4.4). Only when live usage is connected. |
 | `~/.tuloy/statusline.sh` | Tuloy, on Connect | The script Claude Code runs as its status line. |
 | `~/.tuloy/statusline-original.sh` | Tuloy, on Connect | The status line command you had before, so it keeps running. Absent if you had none. |
 | `~/.tuloy/running.lock` | Tuloy | Empty. Held open while Tuloy runs, so a second copy can tell. |
-| `~/.tuloy/settings-backup.json` | Tuloy, on Connect and Disconnect | A copy of Claude Code's settings file from just before Tuloy changed it. |
+| `~/.tuloy/settings-backup.json` | Tuloy, on Connect and Disconnect | A copy of Claude Code's settings file from just before Tuloy changed it. Readable only by you (it's made private before anything is written to it), and deleted a week later. |
 | `~/.tuloy/Sign in to Claude Code.command` | Tuloy, when you choose Sign In… | A short script that Terminal runs: it starts Claude Code's own sign-in (5.13). |
+| `~/.tuloy/Continue with Claude.command` | Tuloy, when you choose Continue in Terminal on a reply | A short script that Terminal runs: `cd` to the message's folder, then `claude --resume` that conversation (5.22). |
 | `~/.claude/settings.json` | You and Claude Code | Claude Code's settings. Tuloy changes only the `statusLine` entry, and only when you choose Connect or Disconnect. |
 
 ---
 
 ## 4. What Tuloy reads from Claude Code
 
-Tuloy talks to Claude Code in three ways. Each has its own format.
+Tuloy talks to Claude Code in five ways. Each has its own format. (The fifth, your scheduled messages, prints the same lines as a ping: see 5.23.)
 
 ### 4.1 A ping's output
 
@@ -246,6 +267,29 @@ When live usage is connected, Claude Code hands its status line data to Tuloy's 
 
 `used_percentage` is 0 to 100 and `resets_at` is Unix seconds. Claude Code only includes `rate_limits` on a Pro or Max plan, after the first reply of a session.
 
+### 4.5 The usage check's output
+
+`claude -p /usage` (5.19) prints the same kind of lines as a ping. The figures are on the reply line, in `usage_report`:
+
+```json
+{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}},
+ "usage_report":{"rate_limits":{"limits":[
+   {"kind":"session","group":"session","percent":75,"resets_at":"2026-10-19T05:50:00.364551+00:00"},
+   {"kind":"weekly_all","group":"weekly","percent":29,"resets_at":"2026-10-22T00:00:00.364575+00:00"}],
+  "extra_usage":{"is_enabled":false}}},
+ "local_command_run":{"command":"usage","args":""}}
+{"type":"result","is_error":false,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0},"local_command":"usage"}
+```
+
+| Field | How Tuloy uses it |
+|---|---|
+| `session` | Your 5-hour window: `percent` used (0 to 100) and `resets_at`. Listed with no reset still to come means no window is open. |
+| `weekly_all` | Your week. (Other weekly entries, such as one model's, are used only if this one is missing.) |
+| `resets_at` | Read to the whole second, so the same window reads the same here as from a ping. |
+| `extra_usage.is_enabled` | Whether paid extra usage is on (5.20). |
+| `num_turns`, `usage` on the result line | Proof the check was free: 0 turns (Claude was never asked) and 0 tokens. Anything else and Tuloy stops checking. |
+| "last-known" in the text | Claude Code couldn't reach its usage service and showed old figures. Tuloy ignores them and checks again in 5 minutes. |
+
 ---
 
 ## 5. What Tuloy does, step by step
@@ -259,7 +303,7 @@ When live usage is connected, Claude Code hands its status line data to Tuloy's 
 4. If no `nextPingAt` is saved, works one out (5.3).
 5. Starts the 30-second loop (5.2).
 6. Starts listening for three things: the Mac waking, the internet coming back, and the time zone changing.
-7. Checks whether live usage is connected.
+7. Checks whether live usage is connected, makes `~/.tuloy` private to you, deletes the settings copy if it's over a week old, and looks at what macOS allows: launch at login, and notifications (5.21).
 8. Runs the sign-in check (4.2). If Claude Code isn't ready, the menu bar shows ⚠ right away.
 9. Decides which windows to show (5.12): the welcome the first time; after that the main window, unless Tuloy was started by "launch at login"; and the mini window if you asked for it.
 
@@ -267,10 +311,12 @@ When live usage is connected, Claude Code hands its status line data to Tuloy's 
 
 Every 30 seconds, and also 5 seconds after the Mac wakes and whenever the internet comes back:
 
-1. Update `now`.
+1. Update `now`. If more than 90 seconds have passed since the last pass ended, the Mac was asleep in between: note when (`lastSleep`).
 2. If the live usage file changed, read it (5.7).
 3. Ask the Planner what to do (5.4).
 4. **Wait** → nothing. **Skip** → work out the next scheduled ping. **Ping** → send one (5.5), but only if online; otherwise try again next time round.
+5. If one of your messages is due and none is being sent, start it (5.22). Started, not waited for: a long piece of work never holds up the loop.
+6. If 5 minutes have passed since the last usage check, run one (5.19).
 
 Checking a clock every 30 seconds, instead of setting one timer for 6:00 AM, is what makes sleep harmless: when the Mac wakes, the next check simply sees that a ping is overdue.
 
@@ -299,6 +345,7 @@ This runs when you change the schedule, resume from pause, after a scheduled pin
 | 4 | Keep going is on and it's within keep-going hours (5.6) | a `keepGoing` ping is wanted → go to 6 |
 | 5 | Otherwise | **wait** |
 | 6 | Pings are waiting on you (5.5) | **wait**. Retrying can't fix it. |
+| 6a | Your week is used up (resting) | **wait**. No ping can start a window until it resets. |
 | 6b | A window Tuloy knows about is open, or reset less than a minute ago | **wait**. A ping now would start nothing. |
 | 7 | Tuloy is on hold after a failed ping (5.5) | **wait** |
 | 8 | Otherwise | **ping** |
@@ -317,12 +364,13 @@ Some examples, with a fresh window at 11:00 AM (ping due 6:00:15):
 
 ### 5.5 Sending a ping
 
+0. **Would it be paid for?** If Claude Code is using an API key, or your account has extra usage on and a limit is used up, nothing is sent (5.20).
 1. **Find `claude`** (4.3). Not found → "Can't find Claude Code".
 2. **Set up its surroundings.** Tuloy passes on its own environment with a few changes:
    - Removed: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, so the ping can only use your Claude plan. Also `CLAUDE_CODE_SIMPLE`, which would switch on "bare mode" and skip your login.
    - Added: `MAX_THINKING_TOKENS=0` (no thinking) and `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT=1` (shorter built-in instructions, for the fallback in step 4).
    - `PATH` gets `claude`'s own folder and the Homebrew folders, because apps don't get your shell's `PATH`.
-3. **Run the ping** from `~/.tuloy`, with a 90-second limit:
+3. **Run the ping** from `~/.tuloy`, with a 90-second limit (time the Mac spends asleep doesn't count):
 
    ```sh
    claude -p hi \
@@ -357,12 +405,14 @@ Some examples, with a fresh window at 11:00 AM (ping due 6:00:15):
 2. Save the week reading, if there was one.
 3. Save the window reading. If there wasn't one and no window is known to be open, assume one that resets 5 hours from now, marked as an estimate.
 4. Clear the hold and the failure count.
-5. Add it to Recent pings, and to the list of windows: "opened by Tuloy", or "already open" if Tuloy knew of it or it began more than about 20 minutes before the ping.
-6. If the fresh window isn't within 10 minutes of the one you asked for, write down why (5.17).
+5. Add it to History (5.23), and to the list of windows: "opened by Tuloy", or "already open" if Tuloy knew of it or it began more than about 20 minutes before the ping. A scheduled ping sent more than 2 minutes late is marked late, with the reason: the Mac was asleep at its time, or Tuloy wasn't running.
+6. If the fresh window isn't within a minute of the one you asked for, write down why (5.17).
 7. If a scheduled ping was due and this ping opened a window, the scheduled ping is done: work out the next one (5.3). That's true whoever sent it, so a Ping Now that opens a window counts. A ping that landed in a window already open has started nothing, so the scheduled ping stays waiting and goes out when that window ends.
 8. Say what happened (5.18): "Pinged. Fresh window at 8:00 PM.", or "Pinged. Your window was already open; it resets at 8:00 PM.", or, at the limit, "This window is used up. It resets at 8:00 PM." (Recent pings then shows a dash, not a tick.) If you started a window by hand that will still be open at the next scheduled ping, the line adds that the scheduled ping will wait for it.
 
-**If your week is used up:** save the week reading, rest until it resets, and add a "Weekly limit used up" line to Recent pings.
+**If your week is used up:** save the week reading, rest until it resets, and add a "Weekly limit used up" line to History.
+
+**If Claude says the ping was paid from extra usage** (`isUsingOverage` in its report): mark it "Paid from extra usage" in History and notify at once. It shouldn't happen, because of step 0.
 
 **If the ping failed**, what happens next depends on whether trying again could help:
 
@@ -418,15 +468,21 @@ Claude Code only runs a status line in Terminal. The Claude desktop app and clau
 
 - **Fresh window.** Whenever the window's reset time changes, Tuloy schedules one notification for that moment, replacing the old one. Off if you turn notifications off.
 - **A problem you need to fix.** Sent once when it first appears: Claude Code missing, signed out, not on your plan, or too old.
+- **Nearly out** (5.15), and **the morning check** (5.16).
+- **Usage checking stopped**, if a check ever used tokens (5.19), and **a ping paid from extra usage** (5.20). Each once.
+
+If notifications for Tuloy are off in System Settings, Preferences and Home say so, with a button that opens the right page.
 
 ### 5.9 The menu bar icon
 
 The first that applies:
 
-1. ⚠ if a ping failed or Claude Code isn't ready.
-2. Paused, if you paused it.
-3. Resting, if your week is used up.
-4. Otherwise your chosen look: ✓, the usage ring, the countdown, or both.
+1. Tuloy's glyph with "!" if a ping failed or Claude Code isn't ready.
+2. The glyph with two bars, if you paused it.
+3. The glyph with a moon, if your week is used up.
+4. Otherwise your chosen look: **Classic** (the glyph: an open ring with a dot on its way round), **Usage** (a ring filled to your percentage, with the number inside), **Timer** (the countdown as text, "4:59"), or **Ultra** (the usage ring with the time left inside: whole hours, "5h", "4h", "3h", while more than two hours are left, then minutes from "120" down to "1", always rounded up).
+
+The glyph is provisional: the first pick from branding.txt's shortlist, drawn in `Tuloy/UI/Glyph.swift`. The app icon is drawn from the same shape by `scripts/make-icon.swift` (`make icon`).
 
 "Fresh window at…" is the open window's reset time. With no window open, it's the next scheduled ping plus 5 hours.
 
@@ -434,7 +490,7 @@ The first that applies:
 
 - **Pause** stops all pings. **Resume** plans the next scheduled ping from now, so pings missed while paused aren't sent late.
 - **Ping Now** sends a ping whatever the Planner thinks, and handles the result the same way (5.5). With no window open, that starts one. It has no keyboard shortcut, on purpose.
-- **The refresh arrow** beside the usage number sends a ping only while a window is open, when it can do nothing but update the number. With no window open it refuses and says why, so it can never start one.
+- **The refresh arrow** beside the usage number runs the free usage check (5.19) at once and says what it found. If a check ever cost tokens, the arrow falls back to the old way: a ping, and only while a window is open, so it can never start one.
 - **Changing the schedule** plans again from now and clears any hold.
 - **Changing time zone** plans again, unless a ping is already due (that one goes out first).
 
@@ -450,9 +506,9 @@ Tuloy has one menu bar item, a panel under it, and four windows. Closing a windo
 
 | Window | Opens | What's in it |
 |---|---|---|
-| **Tuloy** (main) | When you open the app; "Open Tuloy…" in the menu | A sidebar with Home, Schedule, Connection, Preferences and Help. |
+| **Tuloy** (main) | When you open the app; "Open Tuloy…" in the menu | A sidebar with Home, History, Schedule, Messages, Connection, Preferences, Help and About. |
 | **Welcome** | The first time; "Show the Welcome Again" in Help | Four pages: the idea, connect, pick a time, where to find Tuloy. Finishing opens the main window. |
-| **The panel** | A click on the menu bar icon | The ring, your fresh time, how old the usage number is, the week, Ping Now, Pause, the next ping and its reason, and what just happened. Its (…) button has Settings, Connection, Help, Recent Pings and Quit. Escape closes it. |
+| **The panel** | A click on the menu bar icon | The ring, your fresh time, how old the usage number is, the week, Ping Now, Pause, the next ping and its reason, and what just happened. Its (…) button has Settings, Connection, History, Help, the last 10 pings and Quit. Escape closes it. |
 | **Mini** | From Home or the panel; at start if you chose that | The same panel, floating above other windows, on every desktop. |
 | **Guide** | From Connection or Help | Every connecting step and command. Also floats, so it stays visible beside Terminal. |
 
@@ -466,6 +522,8 @@ What opens at start:
 4. Opening the app again while it's running → the main window.
 
 Tuloy tells macOS not to restore old windows, so these rules are the only thing that decides.
+
+**The Dock icon and the menu bar.** Tuloy starts as a menu bar app with no Dock icon. While the main window, the welcome or the guide is open, it shows in the Dock and has a menu bar of its own (Command-Tab finds it; clicking the Dock icon brings the main window back). When the last of them closes, it goes back to being just the menu bar icon. The mini window floats, so it doesn't count. The menus: Tuloy (About, Settings… ⌘,, Quit), File (Close Window ⌘W), Edit (Undo, Cut, Copy ⌘C, Paste ⌘V, Select All…, so copying works in every window), View (each screen, ⌘1 to ⌘8), Window, and Help.
 
 ### 5.13 Signing in
 
@@ -495,7 +553,7 @@ If you sign in by typing the command yourself, there's no marker; the repeated f
 
 ### 5.15 Nearly out
 
-On every new reading, for the window and for the week: if usage has reached 80% or 95% and that level hasn't been announced for this window (or week), notify once. Not if the reading is over 10 minutes old, and for a window not if the reset is under 10 minutes away. Each has its own switch in Preferences.
+On every new reading, for the window and for the week: if usage has reached 80% or 95% and that level hasn't been announced for this window (or week), notify once. With the usage check every 5 minutes, a warning comes within 5 minutes of crossing the line, however you use Claude. Not if the reading is over 10 minutes old, and for a window not if the reset is under 10 minutes away. Each has its own switch in Preferences.
 
 ### 5.16 The morning check
 
@@ -503,13 +561,99 @@ An hour before each scheduled ping, Tuloy runs the free sign-in check. If Claude
 
 ### 5.17 The plan against the truth, and today's windows
 
-When a scheduled ping's window isn't within 10 minutes of the fresh time you asked for, Tuloy keeps one sentence saying so, with the reason when it knows it: a window was already running; a window was still open so Tuloy waited; or the ping went out late. With no known reason it states the two times and nothing more. Home shows it under the status while that window is open.
+When a scheduled ping's window isn't within a minute of the fresh time you asked for, Tuloy keeps one sentence saying so, with the reason when it knows it: a window was already running; a window was still open so Tuloy waited; your Mac was asleep, or Tuloy wasn't running, at ping time; the ping went out late; or (your choice 6) the 10-minute mark: "10:00 AM, not 10:07 AM: Claude starts each window on the 10-minute mark, so a 5:07 AM ping counts from 5:00 AM." The time picker still offers any minute; this is how you find out afterwards. With no known reason it states the two times and nothing more. Home shows it under the status while that window is open.
 
 Home's **Today** bar is drawn from the list of windows (3.2): filled blocks for windows so far, filled as high as usage got; a line for now; dashed outlines for what the forecast says is still to come.
 
 ### 5.18 What just happened
 
 Every action sets one short line (`notice`): after a ping, a pause, a resume, a schedule change, a sign-in, connecting live usage. The panel shows it for 8 seconds, and VoiceOver reads it out.
+
+### 5.19 The usage check
+
+Every 5 minutes (while it's on in Preferences, Tuloy is online, and Claude Code is installed and signed in), and whenever you press the refresh arrow:
+
+```sh
+claude -p /usage --model haiku --tools "" --strict-mcp-config --safe-mode \
+  --no-session-persistence --output-format stream-json --verbose
+```
+
+`/usage` is one of Claude Code's own commands. Claude Code answers it on your Mac by looking your usage up from your Claude account: **no message goes to Claude, no tokens are used, and no window starts.** Confirmed on 9 October 2026 (by hand) and 19 October 2026 (this exact command, Claude Code 2.1.289): 0 tokens, 0 turns, about two seconds, and no saved transcript. Because it reads your account, it sees your use from anywhere: the desktop app, claude.ai, your phone.
+
+| Part | Why |
+|---|---|
+| `-p /usage` | Run the command and exit. The command must come right after `-p`. |
+| `--no-session-persistence` | Without it, every check would leave a transcript in `~/.claude/projects`: 288 a day. |
+| `--strict-mcp-config`, `--safe-mode` | No MCP servers to connect and none of your hooks, so it's quick. |
+| `--model haiku`, `--tools ""` | A seatbelt. If Claude Code ever passed "/usage" to Claude as a message, it would cost no more than a ping. |
+
+If the first command fails with "unknown option", the same without `--safe-mode` is tried.
+
+What Tuloy does with the answer (4.5):
+
+1. **It wasn't free** (any tokens, or any turns): stop checking, switch the setting off, notify once, and show the token count in Preferences. Usage then updates only with pings, as it used to. Switching the setting back on tries again.
+2. **It failed** (offline, signed out…): note why (Preferences shows it), say nothing else, and try again in 5 minutes.
+3. **"Last-known" figures**: ignored.
+4. **Otherwise**: take the window and the week like any other reading (newer replaces older). A window Tuloy didn't open is added to the list as yours, so a scheduled ping waits for it instead of landing in it. A week at 100% means resting (5.4, 6a); a week with room again ends resting early. If Claude Code says no window is open while Tuloy thinks one is, and Tuloy's own reading is over 10 minutes old, Tuloy believes Claude Code. (Under 10 minutes, Claude's figures may simply not have caught up with a ping.)
+
+A check never runs while a ping is being sent. A reading carries the time the check *began*, so one that started before a ping can't overwrite what the ping reported.
+
+### 5.20 A ping is never paid for
+
+**An API key.** Tuloy removes API keys from the environment it gives Claude Code (5.5), but Claude Code can also find one in its own settings file (an `env` entry, or `apiKeyHelper`). Two things catch that. The sign-in check (4.2) reports it as "not your plan". And every ping and usage check prints Claude Code's own `apiKeySource` on its first line: `none` on a subscription. If it names a key, Tuloy marks Claude Code "not using your Claude plan", sends no ping at all (Ping Now included, which says why), notifies once, and keeps it that way, even across a restart and even if the sign-in check says your plan, until a later report shows `none` again.
+
+
+Claude plans can have **extra usage** switched on in your Claude settings: once a limit is used up, more messages are allowed and paid for. With it off (the usual case, and yours as of 19 October 2026), a message at a used-up limit is simply turned away, free.
+
+So Tuloy reads `extra_usage.is_enabled` with every usage check. While it's on and your window or your week is used up, **no ping is sent**, not even Ping Now (which says why). Pinging couldn't start a window then anyway. As a second guard, if Claude ever reports a ping as paid from extra usage, Tuloy marks it in History and notifies at once.
+
+### 5.21 What macOS allows
+
+Tuloy looks when it starts, when it comes to the front, and when Preferences opens:
+
+- **Launch at login**: on, off, held back until you allow it in System Settings › General › Login Items, or impossible because this copy isn't in Applications. The held-back case shows on Home and in Preferences, with a button to Login Items.
+- **Notifications**: if they're off for Tuloy in System Settings while any of Tuloy's notifications are switched on, Home and Preferences say so, with a button to Tuloy's page in Notifications settings.
+
+### 5.22 Your scheduled messages
+
+The **Messages** screen keeps messages of your own for Claude, each with when, where and how it goes. The editor shows the exact command before you save.
+
+**When.** `once` at a date and time. `daily` at a time, on the weekdays you pick. `nextFreshWindow`: a minute after the open window resets, or after the fresh window Tuloy has planned; if you open a window first, it moves to that window's end; sent once.
+
+**Each tick,** if no message is being sent and the Mac is online, the earliest one that's due is started:
+
+1. **Too late?** If it's over 3 hours past its time, or it's late because the Mac was asleep (or Tuloy wasn't running) and you said not to send late: it isn't sent. A "Missed" line goes in the replies, and a daily one moves to its next time.
+2. **Would it cost money?** Not sent if Claude Code isn't using your plan (an API key or another provider, 5.20), if extra usage is on and a limit is used up, or if your week is used up. The reply says which.
+3. **Moves on first.** A one-off switches off; a daily one moves to its next time. (So a message is never sent twice, even if Tuloy quits partway.)
+4. **Runs,** in the background, from the message's folder (or `~/.tuloy` with none), with your message on standard input (so a message of any length, or one starting with "-", can't be taken for an option):
+
+   ```sh
+   claude -p --output-format stream-json --verbose \
+     [--model sonnet] [--effort high] \
+     <what Claude may do> --permission-prompts none \
+     [--safe-mode --strict-mcp-config] [--append-system-prompt …] \
+     --name "Tuloy: <its name>"      # or --no-session-persistence
+   ```
+
+   | What Claude may do | Flags | So Claude can |
+   |---|---|---|
+   | Answer only | `--tools ""` | write a reply, nothing else |
+   | Read the folder | `--tools Read,Grep,Glob` | open and search files in the folder |
+   | Read and edit files | `--tools Read,Grep,Glob,Edit,Write --permission-mode acceptEdits` | also change files in the folder (edits elsewhere would need approval, so they're refused). No commands |
+   | Anything, without asking | `--dangerously-skip-permissions` | change any file and run any command. The editor asks you to confirm |
+   | + search the web | adds `WebSearch,WebFetch` to the tools, pre-approved | look things up |
+
+   `--permission-prompts none` means anything that would need approval is refused at once, instead of waiting for an answer that can't come. The environment is the ping's (5.5) without the ping-only changes: API keys and other providers removed, but thinking left as your effort setting says. The time limit is the message's own (10 minutes to 2 hours, counting only time the Mac is awake). **Stop** ends it early.
+
+5. **Afterwards:** the reply (or why there isn't one), its tokens, the conversation's id if kept, the model, and what Claude was refused go into the replies. The output's usage report is taken like a ping's: the window and week update; a message that opened a window is noted as Tuloy's; one that opened a window within 10 minutes of the scheduled ping did that ping's job, so the next scheduled ping is planned instead. A notification says it's done, with the start of the reply.
+
+**Continue in Terminal** writes `~/.tuloy/Continue with Claude.command` and opens it: Terminal goes to the message's folder and runs `claude --resume <id>`, so the conversation carries on where Claude left it.
+
+Pause stops pings, not messages: each message has its own switch.
+
+### 5.23 History
+
+The **History** screen has a square for each day (a column per week, as many weeks as fit, up to a year), darker for more pings that got through, orange for a day when every ping failed, outlined for today. Hover for that day's figures; click to list only its pings. Under it: pings sent, days with a ping, days in a row, and the tokens pings used in the last 31 days. Then every ping of the last 31 days, by day: a tick, a cross, or a dash (got through but the window was used up); the time ("6:00 – 6:30 AM" for a run of the same failure, with "(4 times)"); why it was sent; what came of it; "Late: your Mac was asleep at 6:00 AM" when that's why it was late; and its tokens.
 
 ---
 
@@ -530,7 +674,21 @@ Why "hi" plus an instruction, and not just "hi" or "."? Words Claude writes coun
 
 Haiku has no effort levels, so there's no lower "setting" to choose. Turning thinking off is the one dial it has.
 
-The real number is in **Recent Pings**: each line ends with the tokens Claude Code counted for that ping.
+The real number is in **History**: each line ends with the tokens Claude Code counted for that ping. So far it has been **350 tokens** every time (Claude Code 2.1.288 and 2.1.289), and 0 when a used-up limit turned the ping away.
+
+### Tokens, not credit
+
+A ping costs **tokens from your plan's usage allowance**, like any message you send Claude. It does not cost money:
+
+- **Not API credit.** API keys and other providers are removed from the ping's environment (5.5), so Claude Code can only use your Claude subscription login. If Claude Code finds a key anyway (in its own settings), Tuloy sees it in the sign-in check or in Claude Code's own report, and sends nothing until it's gone (5.20).
+- **Not extra usage.** Paid extra usage could only be touched by a message sent while a limit is used up. Tuloy doesn't send one then (5.20).
+- **`total_cost_usd`** in Claude Code's output is its estimate of what the tokens *would* cost at API prices. On a subscription nothing is billed per message.
+
+The **usage check** costs nothing at all: 0 tokens, 0 turns, every time. Tuloy watches that it stays that way (5.19).
+
+**Your scheduled messages** (5.22) are real work, so they use as much of your allowance as the same message typed into Claude Code: a few thousand tokens for a short answer, far more for a big model, high effort, or a long job in a folder. The same guards as pings apply, so they never cost money: no API key, no paid extra usage, nothing sent while the week is used up.
+
+How much of a window 350 tokens is, Anthropic doesn't publish; a ping is sent once or a few times a day, and the usage ring shows the effect for yourself.
 
 ---
 
@@ -538,9 +696,11 @@ The real number is in **Recent Pings**: each line ends with the tokens Claude Co
 
 - **Never reads your login or tokens.** The official `claude` command signs in by itself.
 - **Never uses API billing.** API keys are removed from the ping's environment.
-- **Never sends anything but the ping.** No analytics, no server of its own.
+- **Never pays for a ping.** No ping while Claude Code is using an API key, or while extra usage is on and a limit is used up (5.20).
+- **Never sends anything but the ping.** The usage check sends Claude nothing: Claude Code looks your usage up. No analytics, no server of its own.
 - **Never changes Claude Code's settings by itself.** Only when you choose Connect or Disconnect, only the `statusLine` entry, with a backup.
 - **Never runs your hooks or plugins** during a ping.
+- **Never lets a message do more than you chose.** What Claude may do is set per message, and anything beyond it is refused, not asked about.
 
 ---
 
@@ -551,14 +711,16 @@ These are the places where Tuloy follows Claude Code's documentation or a carefu
 | Question | Why it matters | What to look for |
 |---|---|---|
 | Does every ping come back with a window report? | **Yes, so far.** Six real pings on 6 October 2026 each reported an exact reset time and a percentage, for the window and the week. | |
-| Do windows start on the hour? | **No: on 10-minute marks** (5 or 20 would also fit the six pings seen). One reset at 4:40 AM rules out the hour. The time picker still offers any minute until one deliberate ping at an odd minute settles the step. | Ping Now at a minute ending in 5 to 9, with no window open, and see where the reset lands. |
-| How many tokens does a ping really use? | **350**, every time, on Claude Code 2.1.288. | The token count on each Recent pings line. |
-| Can usage be checked without spending tokens? | Not yet known. Claude Code's `/usage` command may answer without asking the model. Until that's tested, usage only updates with a ping (or the status line), and the panel shows how old the number is. | Run `claude -p "/usage" --output-format json` in Terminal and look at the token counts. |
+| Do windows start on the hour? | **No: on 10-minute marks**, confirmed by your own pings. The time picker still offers any minute (your choice 6); when a ping's window comes out different, Tuloy says so afterwards (5.17). | |
+| How many tokens does a ping really use? | **350**, every time, on Claude Code 2.1.288. | The token count on each History line. |
+| Can usage be checked without spending tokens? | **Yes.** `/usage` uses 0 tokens and 0 turns (5.19). | Preferences shows when the last check ran. If one ever costs anything, Tuloy stops and tells you. |
+| What does `/usage` say when no window is open? | Not yet seen. Tuloy expects the `session` entry with no reset time, and reads anything else as "no news". | The first check after a window ends. |
+| What do a ping's raw lines look like on your Mac? | The ping tests are built from Claude Code's documentation and earlier runs, not from one of your pings saved whole. | Run the ping command from Connection once in Terminal and save what it prints (MovingForward.txt). |
 | Do the newer flags work with a subscription login? | If not, every ping quietly uses the plain fallback, which is larger. | A token count far bigger than a one-word exchange should need. |
 
 **A Claude Code change to watch for.** Claude Code's documentation says "bare mode" will become the default for `claude -p` in a future release, and bare mode doesn't read your Claude login. There is no documented way to ask for the normal mode today. If that ships, pings will fail with "The ping couldn't use your Claude login", and `ClaudeCLI.swift` will need whatever new flag turns bare mode off. Tuloy already removes the environment variable that forces bare mode, and the error message tells this case apart from being signed out.
 
-**When your Mac is asleep.** Tuloy can't wake it. With Power Nap on, macOS wakes a sleeping Mac briefly from time to time, and Tuloy pings in one of those moments if it lasts long enough. On 8 October 2026 that made three pings 7, 10 and 31 minutes late. A ping's 90-second limit also counts time asleep, so a Mac that dozes off mid-ping can record a false "didn't answer in time". The README shows how to have an iPhone send the early ping instead.
+**When your Mac is asleep.** Tuloy can't wake it. With Power Nap on, macOS wakes a sleeping Mac briefly from time to time, and Tuloy pings in one of those moments if it lasts long enough. On 8 October 2026 that made three pings 7, 10 and 31 minutes late. History marks such pings "Late", with the reason. A ping's 90-second limit no longer counts time asleep. The README shows how to have an iPhone send the early ping instead.
 
 ---
 
@@ -575,3 +737,6 @@ These are the places where Tuloy follows Claude Code's documentation or a carefu
 | **Hold** | A pause before retrying after a failed ping. |
 | **Resting** | Waiting for a used-up week to reset. |
 | **Tick** | One pass of the 30-second loop. |
+| **Usage check** | Claude Code's own `/usage`, run every 5 minutes. Free: no message is sent. |
+| **Extra usage** | Paid usage beyond your plan's limits, if you switch it on in your Claude settings. Tuloy never spends it. |
+| **Glyph** | Tuloy's own small symbol in the menu bar. |

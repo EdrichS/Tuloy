@@ -10,9 +10,10 @@ binary="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Tul
 
 app=build/Tuloy.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/Tuloy"
 cp Support/Info.plist "$app/Contents/Info.plist"
+cp Support/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 # Signed to run on this Mac. To share builds, sign with your Developer ID instead.
 codesign --force --sign - --options runtime "$app"

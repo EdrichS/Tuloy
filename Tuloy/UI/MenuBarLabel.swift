@@ -10,10 +10,10 @@ enum DisplayMode: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .classic: return "A simple icon: running, paused, or needs attention."
+        case .classic: return "Tuloy's symbol: running, paused, resting, or needs attention."
         case .usage: return "A ring that fills as you use your 5-hour allowance."
         case .timer: return "A countdown to your next fresh window."
-        case .ultra: return "The usage ring, with the countdown inside."
+        case .ultra: return "The usage ring, with the time left inside: hours, then minutes from 120."
         }
     }
 
@@ -48,7 +48,7 @@ struct MenuBarLabel: View {
     private var icon: some View {
         // A problem always wins, whatever the mode, so you never miss one.
         if model.status == .problem {
-            Image(systemName: "exclamationmark.triangle")
+            statusIcon
         } else {
             switch model.displayMode {
             case .classic:
@@ -58,22 +58,20 @@ struct MenuBarLabel: View {
             case .timer:
                 if model.freshAt != nil { Text(countdown) } else { statusIcon }
             case .ultra:
-                Image(nsImage: Ring(progress: usageProgress, text: countdown, isFaded: model.isUsageStale).image())
+                Image(nsImage: Ring(progress: usageProgress, text: ringCountdown, isFaded: model.isUsageStale).image())
             }
         }
     }
 
+    /// Tuloy's own symbol, in the version for how things stand.
     private var statusIcon: Image {
-        switch model.status {
-        case .paused: return Image(systemName: "pause.circle")
-        case .resting: return Image(systemName: "moon.zzz")
-        case .running, .problem: return Image(systemName: "checkmark.circle")
-        }
+        Image(nsImage: Glyph.image(for: model.status))
     }
 
     private var usageProgress: Double { Double(model.usagePercent ?? 0) / 100 }
     private var usageText: String { model.usagePercent.map { "\($0)" } ?? "–" }
     private var countdown: String { Format.countdown(to: model.freshAt, from: model.now) }
+    private var ringCountdown: String { Format.ringCountdown(to: model.freshAt, from: model.now) }
 
     private var accessibilityText: String {
         if let attention = model.attention { return "Tuloy: \(attention.errorDescription ?? "needs attention")" }

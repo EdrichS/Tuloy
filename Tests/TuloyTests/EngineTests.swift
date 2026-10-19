@@ -25,13 +25,19 @@ final class ScriptedClaude: ClaudeCode, @unchecked Sendable {
     private var always: PingOutcome?
     private var setupNow = ClaudeSetup.ready(plan: "pro")
     private var versionNow = "2.1.288"
-    private var counts = (pings: 0, checks: 0)
+    private var counts = (pings: 0, checks: 0, usageChecks: 0)
     private var memories: [PingMemory?] = []
+    private var times: [Date] = []
+    private var usageNext: [UsageOutcome] = []
+    private var usageAlways: UsageOutcome?
 
     init(clock: TestClock) { self.clock = clock }
 
     var pings: Int { lock.withLock { counts.pings } }
     var checks: Int { lock.withLock { counts.checks } }
+    var usageChecks: Int { lock.withLock { counts.usageChecks } }
+    /// When each ping was sent.
+    var pingTimes: [Date] { lock.withLock { times } }
     /// What the Engine said it remembered, at the most recent ping.
     var lastMemory: PingMemory? { lock.withLock { memories.last ?? nil } }
 
@@ -55,6 +61,7 @@ final class ScriptedClaude: ClaudeCode, @unchecked Sendable {
         lock.withLock {
             counts.pings += 1
             memories.append(memory)
+            times.append(clock.now)
             if let always { return always }
             if !queued.isEmpty { return queued.removeFirst() }
             return PingOutcome(result: .success(freshWindow()), style: memory?.style ?? .lean, version: versionNow)
@@ -62,6 +69,45 @@ final class ScriptedClaude: ClaudeCode, @unchecked Sendable {
     }
 
     func checkSetup() async -> ClaudeSetup { lock.withLock { counts.checks += 1; return setupNow } }
+
+    /// The next usage checks come back with these, in order. After that, every check gives `always`
+    /// (by default: nothing to report).
+    func nextUsage(_ outcomes: UsageOutcome...) { lock.withLock { usageNext += outcomes } }
+    func usageAlways(_ outcome: UsageOutcome?) { lock.withLock { usageAlways = outcome } }
+
+    private var messageQueue: [MessageOutcome] = []
+    private var sent: [(message: ScheduledMessage, at: Date)] = []
+    private var delay: Duration = .zero
+
+    /// The next messages come back with these, in order. After that, Claude answers "Done."
+    func nextMessage(_ outcomes: MessageOutcome...) { lock.withLock { messageQueue += outcomes } }
+    /// Each message takes this long (real time), so a test can stop one partway.
+    func messagesTake(_ duration: Duration) { lock.withLock { delay = duration } }
+    /// Every message sent, and when.
+    var messagesSent: [(message: ScheduledMessage, at: Date)] { lock.withLock { sent } }
+
+    func send(_ message: ScheduledMessage) async -> MessageOutcome {
+        let wait: Duration = lock.withLock {
+            sent.append((message, clock.now))
+            return delay
+        }
+        if wait > .zero, (try? await Task.sleep(for: wait)) == nil {
+            return MessageOutcome(result: .failure(.failed("Stopped.")))
+        }
+        return lock.withLock {
+            if !messageQueue.isEmpty { return messageQueue.removeFirst() }
+            return MessageOutcome(result: .success("Done."), report: PingReport(tokens: 1200), sessionID: "session-1",
+                                  model: "claude-sonnet", version: versionNow)
+        }
+    }
+
+    func checkUsage() async -> UsageOutcome {
+        lock.withLock {
+            counts.usageChecks += 1
+            if !usageNext.isEmpty { return usageNext.removeFirst() }
+            return usageAlways ?? UsageOutcome(result: .success(UsageReport()))
+        }
+    }
     func locate() async -> String? { "~/.local/bin/claude" }
     func version() async -> String? { lock.withLock { versionNow } }
 
@@ -124,6 +170,11 @@ struct World {
 
     func reading(_ percent: Int?, resets: Date, ago: TimeInterval = 0) -> UsageReading {
         UsageReading(percent: percent, resetsAt: resets, asOf: clock.now.addingTimeInterval(-ago))
+    }
+
+    /// What a free usage check comes back with.
+    func usage(window: UsageReading? = nil, noWindow: Bool = false, week: UsageReading? = nil) -> UsageOutcome {
+        UsageOutcome(result: .success(UsageReport(window: window, noWindow: noWindow, week: week)), version: claude.versionNumber)
     }
 }
 
@@ -207,8 +258,12 @@ struct World {
         world.clock.now = due.addingTimeInterval(-30)
         await world.run(until: october(5, 7))
 
-        let minutes = world.engine.history.reversed().map { Int($0.date.timeIntervalSince(due) / 60) }
+        let minutes = world.claude.pingTimes.map { Int($0.timeIntervalSince(due) / 60) }
         #expect(minutes == [0, 1, 3, 8, 23, 53])   // after 1, 2, 5, 15, then 30 minutes
+        // History keeps them as one line, not six.
+        #expect(world.engine.history.count == 1)
+        #expect(world.engine.history.first?.count == 6)
+        #expect(world.engine.history.first?.firstDate == world.claude.pingTimes.first)
         #expect(world.engine.waitingOn == nil)
         #expect(world.notices.count("problem") == 0)   // nothing for you to do
         #expect(world.engine.forecast.reason == .retrying)
@@ -295,17 +350,17 @@ struct World {
     }
 
     // 13
-    @Test func aRefreshDoesNotCancelAScheduledPingThatIsWaiting() async {
+    @Test func pingNowInAnOpenWindowDoesNotCancelAScheduledPingThatIsWaiting() async {
         let world = World()
         world.clock.now = october(5, 5)
         let open = world.reading(40, resets: october(5, 8))
         world.engine.take(window: open, week: nil)
         await world.go(to: october(5, 6, 30))   // the scheduled ping is due, but waiting for 8:00
 
-        // You refresh. The ping lands in the window that's already open, so it has started nothing.
+        // You press Ping Now. It lands in the window that's already open, so it has started nothing.
         world.claude.next(PingOutcome(result: .success(PingReport(window: world.reading(41, resets: october(5, 8)), tokens: 350)),
                                       style: .lean, version: "2.1.288"))
-        await world.engine.refreshUsage()
+        await world.engine.pingNow()
         #expect(world.engine.notice?.text.contains("already open") == true)
         #expect(world.engine.nextPingAt == due)   // still waiting, not put off till tomorrow
 
@@ -328,10 +383,25 @@ struct World {
         #expect(world.claude.pings == 2)   // no third ping
     }
 
-    @Test func theRefreshArrowNeverStartsAWindow() async {
+    @Test func theRefreshArrowIsTheFreeCheckNotAPing() async {
         let world = World()
         await world.engine.refreshUsage()   // no window open
         #expect(world.claude.pings == 0)
+        #expect(world.claude.usageChecks == 1)
+        #expect(world.engine.notice?.text == "No window is open right now.")
+
+        world.claude.nextUsage(world.usage(window: world.reading(42, resets: october(5, 8))))
+        await world.engine.refreshUsage()
+        #expect(world.claude.pings == 0)
+        #expect(world.engine.usagePercent == 42)
+        #expect(world.engine.notice?.text.hasPrefix("42% of this window used") == true)
+    }
+
+    @Test func withoutTheFreeCheckTheRefreshArrowPingsOnlyIntoAnOpenWindow() async {
+        let world = World(["usageCheckCost": 350])   // a check once cost tokens, so Tuloy stopped them
+        await world.engine.refreshUsage()   // no window open
+        #expect(world.claude.pings == 0)
+        #expect(world.claude.usageChecks == 0)
         #expect(world.engine.notice?.text.hasPrefix("No window is open") == true)
 
         world.engine.take(window: world.reading(40, resets: october(5, 8)), week: nil)

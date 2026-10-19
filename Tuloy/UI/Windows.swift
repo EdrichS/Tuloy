@@ -4,7 +4,7 @@ import SwiftUI
 /// Tuloy's windows. The menu bar item is always there; these open when you ask.
 /// Closing any of them leaves Tuloy running in the menu bar.
 enum WindowID: String {
-    /// The main window: status, schedule, connection, preferences and help.
+    /// The main window: status, history, schedule, messages, connection, preferences and help.
     case main
     /// The welcome, shown the first time you open Tuloy.
     case setup
@@ -16,7 +16,7 @@ enum WindowID: String {
 
 /// The screens in the main window.
 enum MainTab: String, CaseIterable, Identifiable {
-    case home, schedule, connection, preferences, help, about
+    case home, history, schedule, messages, connection, preferences, help, about
 
     var id: Self { self }
     var title: String { rawValue.capitalized }
@@ -24,7 +24,9 @@ enum MainTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .home: return "house"
+        case .history: return "square.grid.3x3"
         case .schedule: return "clock"
+        case .messages: return "paperplane"
         case .connection: return "link"
         case .preferences: return "slider.horizontal.3"
         case .help: return "questionmark.circle"
@@ -57,6 +59,12 @@ struct WindowConfigurator: NSViewRepresentable {
 }
 
 extension View {
+    /// Tells the model when this window opens and closes, for the Dock icon.
+    func tracksWindow(_ id: WindowID, model: AppModel) -> some View {
+        onAppear { model.window(id, isOpen: true) }
+            .onDisappear { model.window(id, isOpen: false) }
+    }
+
     /// Keeps this window above your other windows, on every desktop.
     func floatingWindow(movableByBackground: Bool = false) -> some View {
         background(WindowConfigurator { window in
@@ -93,6 +101,39 @@ struct TuloyButtonStyle: ButtonStyle {
                 .opacity(!isEnabled ? 0.45 : configuration.isPressed ? 0.7 : 1)
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
+    }
+}
+
+/// A switch with its label on the left and the switch on the right edge, as in Preferences.
+/// For places outside a settings form, where macOS would put the switch right after the words.
+struct SwitchRow: View {
+    var title: String
+    var detail: String?
+    @Binding var isOn: Bool
+
+    init(_ title: String, detail: String? = nil, isOn: Binding<Bool>) {
+        self.title = title
+        self.detail = detail
+        _isOn = isOn
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail {
+                    Text(detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+            Toggle(title, isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -235,5 +276,26 @@ extension PingRecord {
         if let note { return note }
         if let resetsAt { return "Fresh at \(Format.time(resetsAt))" }
         return ok ? "Sent" : "Didn't get through"
+    }
+
+    /// "6:00 AM", or "6:00 – 8:30 AM" for a run of the same failure.
+    var timeText: String {
+        guard let firstDate, (count ?? 1) > 1 else { return date.formatted(date: .omitted, time: .shortened) }
+        return (firstDate..<max(date, firstDate)).formatted(.interval.hour().minute())
+    }
+
+    /// "(6 times)" for a run of the same failure.
+    var timesText: String? {
+        (count ?? 1) > 1 ? "(\(count ?? 1) times)" : nil
+    }
+
+    /// "Late: your Mac was asleep at 6:00 AM", for a scheduled ping that went out late.
+    var lateText: String? {
+        guard let late else { return nil }
+        let due = late.due.formatted(date: .omitted, time: .shortened)
+        switch late.reason {
+        case .asleep: return "Late: your Mac was asleep at \(due)"
+        case .notRunning: return "Late: Tuloy wasn't running at \(due)"
+        }
     }
 }

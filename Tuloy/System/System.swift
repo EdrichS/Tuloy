@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import ServiceManagement
 import UserNotifications
 
@@ -29,6 +29,20 @@ final class SystemNotices: Notices {
         send(id, title: title, body: body, trigger: nil)
     }
 
+    /// True when you've turned Tuloy's notifications off in System Settings.
+    static func areBlocked() async -> Bool {
+        guard Bundle.main.bundleIdentifier != nil else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
+    /// System Settings, at Tuloy's notifications.
+    static func openSettings() {
+        let id = Bundle.main.bundleIdentifier ?? "com.edrichsilva.tuloy"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     private func send(_ id: String, title: String, body: String, trigger: UNNotificationTrigger?) {
         guard isAvailable else { return }
         let content = UNMutableNotificationContent()
@@ -54,7 +68,29 @@ final class PreferencesStorage: Storage {
 
 /// "Launch at login", using macOS's built-in login items.
 enum LoginItem {
-    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    enum State: Equatable {
+        case on, off
+        /// Switched on, but held back in System Settings until you allow it.
+        case needsApproval
+        /// macOS can't find this copy of Tuloy to register, usually because it isn't in Applications.
+        case notFound
+    }
+
+    static var state: State {
+        switch SMAppService.mainApp.status {
+        case .enabled: return .on
+        case .requiresApproval: return .needsApproval
+        case .notFound: return .notFound
+        default: return .off
+        }
+    }
+
+    static var isEnabled: Bool { state == .on || state == .needsApproval }
+
+    /// System Settings, at Login Items.
+    static func openSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
 
     static func set(_ enabled: Bool) {
         do {

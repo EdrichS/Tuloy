@@ -43,6 +43,29 @@ import Testing
 
     """
 
+    // MARK: - The copy of your settings
+
+    @Test func theCopyIsPrivateAndGoesAfterAWeek() throws {
+        let home = try Home(settings: plain)
+        defer { home.remove() }
+        // Your settings file is readable by others on this Mac; the copy mustn't be.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: home.settings.path(percentEncoded: false))
+        try home.link.connect()
+
+        let backup = home.folder.appending(path: "settings-backup.json").path(percentEncoded: false)
+        let attributes = try FileManager.default.attributesOfItem(atPath: backup)
+        #expect((attributes[.posixPermissions] as? Int) == 0o600)
+        #expect(home.read("settings-backup.json") == plain)
+        // Your own file keeps its permissions.
+        let yours = try FileManager.default.attributesOfItem(atPath: home.settings.path(percentEncoded: false))
+        #expect((yours[.posixPermissions] as? Int) == 0o644)
+
+        home.link.forgetOldBackup(now: Date().addingTimeInterval(6 * 24 * 3600))
+        #expect(FileManager.default.fileExists(atPath: backup))
+        home.link.forgetOldBackup(now: Date().addingTimeInterval(8 * 24 * 3600))
+        #expect(!FileManager.default.fileExists(atPath: backup))
+    }
+
     // MARK: - Connecting
 
     @Test func addsAStatusLineAndLeavesTheRestAlone() throws {

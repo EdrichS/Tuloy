@@ -33,8 +33,10 @@ struct PanelContent: View {
                                 Image(systemName: "arrow.clockwise")
                             }
                             .buttonStyle(.plain)
-                            .disabled(model.isPinging)
-                            .help("Refresh now. This sends one ping (about \(model.lastPing?.tokens ?? 350) tokens).")
+                            .disabled(model.isPinging || model.isCheckingUsage)
+                            .help(model.usageCheckCost == nil
+                                  ? "Check now. Free: no message is sent, so no tokens are used."
+                                  : "Refresh now. This sends one ping (about \(model.lastPing?.tokens ?? 350) tokens).")
                             .accessibilityLabel("Refresh usage")
                         }
                         .font(.caption)
@@ -90,6 +92,20 @@ struct PanelContent: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if let line = messageLine {
+                Button { go(.main, .messages) } label: {
+                    HStack(spacing: 4) {
+                        if model.sendingMessage != nil { ProgressView().controlSize(.mini) } else { Image(systemName: "paperplane") }
+                        Text(line)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open Messages")
+            }
+
             NoticeLine(model: model)
         }
     }
@@ -105,7 +121,7 @@ struct PanelContent: View {
         .disabled(model.isPinging)
         .help(model.currentWindow == nil
               ? "Starts a new 5-hour window right now"
-              : "Sends one ping. Your window is already open, so this only refreshes your usage")
+              : "Sends one ping (about \(model.lastPing?.tokens ?? 350) tokens). Your window is already open, so it starts nothing. To see your usage, use the free ↻ instead.")
     }
 
     private func go(_ window: WindowID, _ tab: MainTab) {
@@ -127,6 +143,15 @@ struct PanelContent: View {
     private var shortDetail: String {
         guard let openWindow else { return model.detail }
         return "Resets in \(Format.duration(to: openWindow.resetsAt, from: model.now))"
+    }
+
+    /// The message being sent, or the next one due today or tomorrow.
+    private var messageLine: String? {
+        if let id = model.sendingMessage, let message = model.messages.first(where: { $0.id == id }) {
+            return "Claude is working on \u{201C}\(message.name)\u{201D}"
+        }
+        guard let next = model.nextMessage, let at = next.nextRun, at.timeIntervalSince(model.now) < 36 * 60 * 60 else { return nil }
+        return "Next message: \(next.name), \(Format.when(at, now: model.now))"
     }
 
     /// How old the usage figure is. Only shown when there is a figure.
@@ -255,14 +280,20 @@ struct MoreMenu: View {
             Button("Settings…") { go(.schedule) }
                 .keyboardShortcut(",")
             Button("Connection…") { go(.connection) }
+            Button("History…") { go(.history) }
+            Button("Messages…") { go(.messages) }
             Button("Help") { go(.help) }
 
             Menu("Recent Pings") {
                 if model.history.isEmpty {
                     Text("No pings yet")
                 }
-                ForEach(model.history, id: \.date) { ping in
+                ForEach(model.history.prefix(10), id: \.date) { ping in
                     Text(line(for: ping))
+                }
+                if !model.history.isEmpty {
+                    Divider()
+                    Button("All Pings…") { go(.history) }
                 }
             }
 
@@ -285,7 +316,7 @@ struct MoreMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Settings, Help, recent pings, and Quit")
+        .help("Settings, History, Help, recent pings, and Quit")
         .accessibilityLabel("More")
     }
 
@@ -297,7 +328,7 @@ struct MoreMenu: View {
     /// "✓ Tue 6:00 AM · Scheduled · Fresh at 11:00 AM · 350 tokens"
     private func line(for ping: PingRecord) -> String {
         let cost = ping.tokens.map { "\($0) tokens" }
-        return ["\(ping.mark) \(Format.time(ping.date))", ping.kindText, ping.outcomeText, cost]
+        return ["\(ping.mark) \(Format.time(ping.date))", ping.kindText, ping.outcomeText, ping.timesText, ping.late.map { _ in "late" }, cost]
             .compactMap { $0 }.joined(separator: " · ")
     }
 }

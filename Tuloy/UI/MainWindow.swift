@@ -20,8 +20,12 @@ struct MainWindow: View {
         switch model.mainTab {
         case .home:
             ScrollView { HomeContent(model: model).padding(20) }
+        case .history:
+            ScrollView { HistoryContent(model: model).padding(20) }
         case .schedule:
             ScheduleScreen(model: model)
+        case .messages:
+            ScrollView { MessagesContent(model: model).padding(20) }
         case .connection:
             ScrollView { ConnectionContent(model: model).padding(20) }
         case .preferences:
@@ -62,6 +66,10 @@ struct Sidebar: View {
                         // A dot on Connection whenever something there needs you.
                         if tab == .connection, model.attention != nil {
                             Circle().fill(.orange).frame(width: 7, height: 7)
+                        }
+                        // A spinner on Messages while Claude is working on one.
+                        if tab == .messages, model.sendingMessage != nil {
+                            ProgressView().controlSize(.mini)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -121,6 +129,15 @@ struct HomeContent: View {
                 PanelContent(model: model, place: .home)
             }
 
+            if model.wantsBlockedNotifications {
+                Blocked(text: "Notifications for Tuloy are off in System Settings, so you won't hear when a fresh window opens or you're nearly out.",
+                        button: "Open Notifications Settings", action: SystemNotices.openSettings)
+            }
+            if model.loginItem == .needsApproval {
+                Blocked(text: "Launch at login is on, but macOS is holding it back until you allow Tuloy in System Settings, under Login Items.",
+                        button: "Open Login Items", action: LoginItem.openSettings)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Today")
                     .font(.headline)
@@ -130,31 +147,21 @@ struct HomeContent: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Recent pings")
-                    .font(.headline)
+                HStack {
+                    Text("Recent pings")
+                        .font(.headline)
+                    Spacer()
+                    if !model.history.isEmpty {
+                        Button("See All in History") { model.mainTab = .history }
+                            .buttonStyle(TuloyButtonStyle())
+                    }
+                }
                 if model.history.isEmpty {
                     Text("No pings yet. Each ping Tuloy sends shows up here, with what came back.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(model.history.prefix(5), id: \.date) { ping in
-                    HStack(spacing: 8) {
-                        Image(systemName: ping.hitTheLimit ? "minus.circle.fill" : ping.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(ping.hitTheLimit ? AnyShapeStyle(.secondary) : ping.ok ? AnyShapeStyle(.green) : AnyShapeStyle(.orange))
-                        Text(Format.time(ping.date))
-                            .monospacedDigit()
-                            .frame(width: 92, alignment: .leading)
-                        Text(ping.kindText)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 78, alignment: .leading)
-                        Text(ping.outcomeText)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        if let tokens = ping.tokens {
-                            Text("\(tokens) tokens")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .font(.callout)
+                    PingRow(ping: ping)
                 }
             }
         }

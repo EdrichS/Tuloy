@@ -34,6 +34,31 @@ enum ClaudeCLI {
         "--output-format", "stream-json", "--verbose",
     ]
 
+    /// The free usage check: Claude Code's own `/usage`, answered on this Mac without asking
+    /// Claude, so it uses no tokens and starts no window. The other flags keep it quick (no MCP
+    /// servers, none of your hooks) and leave no saved transcript behind. If "/usage" ever reached
+    /// Claude as a message, they'd also keep it as small as a ping; Tuloy would notice and stop.
+    static let usageArguments = [
+        "-p", "/usage",
+        "--model", "haiku",
+        "--tools", "",
+        "--strict-mcp-config",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--output-format", "stream-json", "--verbose",
+    ]
+
+    /// For a Claude Code that doesn't know `--safe-mode`. Everything else stays, so a check
+    /// can never cost more than a ping.
+    static let plainUsageArguments = [
+        "-p", "/usage",
+        "--model", "haiku",
+        "--tools", "",
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--output-format", "stream-json", "--verbose",
+    ]
+
     /// Sends one ping, starting with whichever command last worked.
     static func ping(remembering memory: PingMemory?) async -> PingOutcome {
         guard let claude = await locator.find() else {
@@ -42,11 +67,22 @@ enum ClaudeCLI {
 
         let first = memory?.style ?? .lean
         var outcome = await run(first, with: claude)
+        if outcome.usedAPIKey {
+            // Claude Code used an API key from its own settings, not your plan: that ping was billed.
+            // No second try, and none after until that's fixed.
+            outcome.result = .failure(.notOnPlan)
+            return outcome
+        }
         if first == .lean, case .failure(let error) = outcome.result,
            PingMemory.mayFallBack(after: error, memory: memory, version: outcome.version) {
             // Perhaps a Claude Code that doesn't know the newer flags. The plain command works on any.
             let plain = await run(.plain, with: claude)
-            outcome = PingOutcome(result: plain.result, style: .plain, version: plain.version ?? outcome.version)
+            outcome = PingOutcome(result: plain.result, style: .plain, version: plain.version ?? outcome.version,
+                                  usedAPIKey: plain.usedAPIKey)
+            if outcome.usedAPIKey {
+                outcome.result = .failure(.notOnPlan)
+                return outcome
+            }
         }
 
         if case .failure(.signedOut) = outcome.result, case .ready = await checkSetup() {
@@ -62,14 +98,94 @@ enum ClaudeCLI {
             let run = try await Shell.run(claude, arguments: style == .lean ? leanArguments : arguments,
                                           environment: environment(for: claude), directory: Paths.tuloy, timeout: 90)
             let version = PingOutput.version(in: run.output)
+            let usedAPIKey = PingOutput.usesAPIKey(in: run.output)
             do {
                 let report = try PingOutput.read(run.output, status: run.status, errors: run.errors)
-                return PingOutcome(result: .success(report), style: style, version: version)
+                return PingOutcome(result: .success(report), style: style, version: version, usedAPIKey: usedAPIKey)
             } catch {
-                return PingOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)), style: style, version: version)
+                return PingOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)), style: style,
+                                   version: version, usedAPIKey: usedAPIKey)
             }
         } catch {
             return PingOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)), style: style)
+        }
+    }
+
+    /// Reads your usage, free. Falls back to the plain command only if the first one used a flag
+    /// this Claude Code doesn't know.
+    static func checkUsage() async -> UsageOutcome {
+        guard let claude = await locator.find() else { return UsageOutcome(result: .failure(.claudeNotFound)) }
+        let outcome = await runUsage(usageArguments, with: claude)
+        if case .failure(.unknownOption) = outcome.result {
+            return await runUsage(plainUsageArguments, with: claude)
+        }
+        return outcome
+    }
+
+    private static func runUsage(_ arguments: [String], with claude: URL) async -> UsageOutcome {
+        let startedAt = Date()
+        do {
+            let run = try await Shell.run(claude, arguments: arguments, environment: environment(for: claude),
+                                          directory: Paths.tuloy, timeout: 30)
+            return UsageOutput.read(run.output, status: run.status, errors: run.errors, asOf: startedAt)
+        } catch {
+            return UsageOutcome(result: .failure(error as? PingError ?? .failed(error.localizedDescription)))
+        }
+    }
+
+    // MARK: - Your scheduled messages
+
+    /// The command for one of your messages. The message itself goes in on standard input, so a
+    /// message of any length, or one starting with "-", can't be mistaken for an option.
+    static func messageArguments(for message: ScheduledMessage) -> [String] {
+        var arguments = ["-p", "--output-format", "stream-json", "--verbose"]
+        if !message.model.isEmpty { arguments += ["--model", message.model] }
+        if !message.effort.isEmpty { arguments += ["--effort", message.effort] }
+
+        // What Claude may do. Nobody is there to approve anything, so whatever needs approval is refused.
+        var tools: [String]?
+        switch message.access {
+        case .answerOnly:
+            tools = []
+        case .read:
+            tools = ["Read", "Grep", "Glob"]
+        case .edit:
+            tools = ["Read", "Grep", "Glob", "Edit", "Write"]
+            arguments += ["--permission-mode", "acceptEdits"]   // edits inside the folder, and only there
+        case .full:
+            arguments += ["--dangerously-skip-permissions"]
+        }
+        if message.canUseWeb, tools != nil {
+            tools? += ["WebSearch", "WebFetch"]
+            arguments += ["--allowedTools", "WebSearch,WebFetch"]
+        }
+        if let tools { arguments += ["--tools", tools.joined(separator: ",")] }
+        arguments += ["--permission-prompts", "none"]
+
+        if !message.usesYourSetup { arguments += ["--safe-mode", "--strict-mcp-config"] }
+        if !message.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["--append-system-prompt", message.instructions]
+        }
+        // Kept conversations get a name, so they're easy to find in Claude Code's list.
+        arguments += message.keepsConversation ? ["--name", "Tuloy: \(message.name)"] : ["--no-session-persistence"]
+        return arguments
+    }
+
+    /// Sends one of your messages and waits for Claude to finish with it.
+    static func send(_ message: ScheduledMessage) async -> MessageOutcome {
+        guard let claude = await locator.find() else { return MessageOutcome(result: .failure(.claudeNotFound)) }
+        let folder = message.folderURL ?? Paths.tuloy
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path(percentEncoded: false), isDirectory: &isFolder), isFolder.boolValue else {
+            return MessageOutcome(result: .failure(.failed("The folder \(message.folder) isn't there any more.")))
+        }
+        do {
+            let run = try await Shell.run(claude, arguments: messageArguments(for: message),
+                                          environment: environment(for: claude, forPing: false), directory: folder,
+                                          input: Data(message.prompt.utf8), timeout: TimeInterval(max(1, message.minutesAllowed) * 60))
+            return MessageOutput.read(run.output, status: run.status, errors: run.errors)
+        } catch {
+            return MessageOutcome(result: .failure(error as? PingError ?? .failed("Stopped.")))
         }
     }
 
@@ -93,8 +209,7 @@ enum ClaudeCLI {
     /// What Terminal runs when you choose Sign In: Claude Code's own sign-in, and nothing else.
     /// When it finishes it leaves `marker` behind, which is how Tuloy knows to look again at once.
     static func signInScript(for claude: URL, marker: URL) -> String {
-        // Single quotes keep a path with spaces in one piece. A quote inside the path is closed, escaped and reopened.
-        let quoted = { (url: URL) in "'" + url.path(percentEncoded: false).replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let quoted = { (url: URL) in shellQuoted(url.path(percentEncoded: false)) }
         return """
         #!/bin/zsh
         # Made by Tuloy. Signs Claude Code in with your Claude account, in your browser.
@@ -106,6 +221,23 @@ enum ClaudeCLI {
         touch \(quoted(marker))
         echo
         echo "Done. You can close this window and go back to Tuloy."
+
+        """
+    }
+
+    /// Single quotes keep text with spaces in one piece. A quote inside is closed, escaped and reopened.
+    static func shellQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// What Terminal runs for "Continue in Terminal": the conversation one of your messages had, in its folder.
+    static func continueScript(for claude: URL, session: String, folder: URL) -> String {
+        """
+        #!/bin/zsh
+        # Made by Tuloy. Carries on a conversation from one of your scheduled messages.
+        cd \(shellQuoted(folder.path(percentEncoded: false))) || exit 1
+        clear
+        \(shellQuoted(claude.path(percentEncoded: false))) --resume \(shellQuoted(session))
 
         """
     }
@@ -137,8 +269,10 @@ enum ClaudeCLI {
         return URL(fileURLWithPath: path)
     }
 
-    /// What `claude` runs with: Tuloy's own environment, adjusted so the ping is small and uses your plan.
-    static func environment(for claude: URL, from base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+    /// What `claude` runs with: Tuloy's own environment, adjusted so it uses your plan, and for a
+    /// ping (not one of your messages) so it's as small as it gets.
+    static func environment(for claude: URL, forPing: Bool = true,
+                            from base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var env = base
         // Always use your Claude login, never API billing or another provider.
         // (CLAUDE_CODE_SIMPLE is "bare mode", which skips your login.)
@@ -146,10 +280,12 @@ enum ClaudeCLI {
                      "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_SIMPLE"] {
             env[name] = nil
         }
-        // No thinking before the one-word reply. (Haiku has no effort levels, so this is its lowest setting.)
-        env["MAX_THINKING_TOKENS"] = "0"
-        // If the ping falls back to Claude Code's built-in instructions, ask for the short version.
-        env["CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT"] = "1"
+        if forPing {
+            // No thinking before the one-word reply. (Haiku has no effort levels, so this is its lowest setting.)
+            env["MAX_THINKING_TOKENS"] = "0"
+            // If the ping falls back to Claude Code's built-in instructions, ask for the short version.
+            env["CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT"] = "1"
+        }
         // Apps don't get your shell's PATH. Add claude's folder (npm installs keep node there too).
         let folders = [(claude.path(percentEncoded: false) as NSString).deletingLastPathComponent,
                        "/opt/homebrew/bin", "/usr/local/bin", env["PATH"] ?? "/usr/bin:/bin"]
@@ -196,6 +332,14 @@ struct RealClaude: ClaudeCode {
 
     func checkSetup() async -> ClaudeSetup {
         await ClaudeCLI.checkSetup()
+    }
+
+    func checkUsage() async -> UsageOutcome {
+        await ClaudeCLI.checkUsage()
+    }
+
+    func send(_ message: ScheduledMessage) async -> MessageOutcome {
+        await ClaudeCLI.send(message)
     }
 
     func locate() async -> String? {

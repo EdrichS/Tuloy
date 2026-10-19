@@ -12,6 +12,26 @@ import Testing
         #expect(Format.countdown(to: now.addingTimeInterval(30), from: now) == "<1m")
     }
 
+    @Test func theRingCountsWholeHoursThenMinutes() {
+        let left = { (minutes: Double) in Format.ringCountdown(to: self.now.addingTimeInterval(minutes * 60), from: self.now) }
+        #expect(left(300) == "5h")
+        #expect(left(299.5) == "5h")
+        #expect(left(241) == "5h")
+        #expect(left(240) == "4h")
+        #expect(left(181) == "4h")
+        #expect(left(180) == "3h")
+        #expect(left(121) == "3h")
+        #expect(left(120) == "120")   // from here, minutes
+        #expect(left(119.2) == "120")   // rounded up: never less time than there is
+        #expect(left(45) == "45")
+        #expect(left(1) == "1")
+        #expect(left(0.25) == "1")
+        #expect(left(-3) == "1")
+        #expect(left(16 * 60) == "16h")   // the next fresh window, while none is open
+        #expect(left(62 * 60) == "3d")   // a weekly rest
+        #expect(Format.ringCountdown(to: nil, from: now) == "–")
+    }
+
     @Test func neverCountsBelowZero() {
         #expect(Format.countdown(to: now.addingTimeInterval(-600), from: now) == "<1m")
     }

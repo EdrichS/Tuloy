@@ -90,7 +90,7 @@ struct SetupPage: View {
             Point(symbol: "paperplane", title: "Tuloy starts one early",
                   text: "It sends one tiny message hours before you sit down. That window runs out while you work, and you get a fresh one mid-session.")
             Point(symbol: "menubar.arrow.up.rectangle", title: "It lives in your menu bar",
-                  text: "No Dock icon. Look for the small icon at the top right of your screen. This window and a mini one are there whenever you want them.")
+                  text: "Look for the small ring at the top right of your screen. Tuloy shows in the Dock only while one of its windows is open. This window and a mini one are there whenever you want them.")
 
             Card {
                 DayTimeline(schedule: Schedule(), now: model.now)
@@ -142,10 +142,7 @@ struct SetupPage: View {
                     LabeledContent("On") {
                         WeekdayPicker(selection: $model.weekdays)
                     }
-                    Toggle(isOn: $model.keepGoing) {
-                        Text("Keep going")
-                        Text("Start a new window each time one ends.")
-                    }
+                    SwitchRow("Keep going", detail: "Start a new window each time one ends.", isOn: $model.keepGoing)
                     if model.keepGoing {
                         DatePicker("Until", selection: $model.untilTime, displayedComponents: .hourAndMinute)
                     }
@@ -187,8 +184,8 @@ struct SetupPage: View {
 
             Card {
                 VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Notify me when a fresh window opens", isOn: $model.notify)
-                    Toggle("Show the mini window when Tuloy starts", isOn: $model.miniAtLaunch)
+                    SwitchRow("Notify me when a fresh window opens", isOn: $model.notify)
+                    SwitchRow("Show the mini window when Tuloy starts", isOn: $model.miniAtLaunch)
                 }
             }
         }

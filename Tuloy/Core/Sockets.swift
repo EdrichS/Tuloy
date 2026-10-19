@@ -20,6 +20,10 @@ protocol ClaudeCode: Sendable {
     func ping(remembering memory: PingMemory?) async -> PingOutcome
     /// Checks that Claude Code is installed and signed in, without sending a message.
     func checkSetup() async -> ClaudeSetup
+    /// Reads your usage with Claude Code's own `/usage`, without sending a message.
+    func checkUsage() async -> UsageOutcome
+    /// Sends one of your scheduled messages and waits for the reply.
+    func send(_ message: ScheduledMessage) async -> MessageOutcome
     /// Where the `claude` command is, for showing in Connection.
     func locate() async -> String?
     /// Claude Code's version, such as "2.1.288".
@@ -37,6 +41,8 @@ struct PingOutcome: Sendable {
     var style: PingStyle
     /// Claude Code's version, when its output said.
     var version: String?
+    /// True if Claude Code said it used an API key, so this ping was billed, not taken from your plan.
+    var usedAPIKey = false
 }
 
 /// Which ping command last worked, and on which Claude Code.

@@ -47,6 +47,22 @@ final class DemoClaude: ClaudeCode, @unchecked Sendable {
         lock.withLock { signedIn } ? .ready(plan: "pro") : .signedOut
     }
 
+    /// Reports nothing new, so the made-up figures on screen stay as they are.
+    func checkUsage() async -> UsageOutcome {
+        try? await Task.sleep(for: .seconds(1))
+        guard lock.withLock({ signedIn }) else { return UsageOutcome(result: .failure(.signedOut)) }
+        return UsageOutcome(result: .success(UsageReport()), version: "2.1.288")
+    }
+
+    /// Pretends to work on it for a few seconds, then answers.
+    func send(_ message: ScheduledMessage) async -> MessageOutcome {
+        try? await Task.sleep(for: .seconds(3))
+        guard lock.withLock({ signedIn }) else { return MessageOutcome(result: .failure(.signedOut)) }
+        let reply = "(Demo reply.) This is where Claude's answer to \u{201C}\(message.name)\u{201D} would appear, ready to copy."
+        return MessageOutcome(result: .success(reply), report: PingReport(tokens: 4_210), sessionID: UUID().uuidString.lowercased(),
+                              model: message.model.isEmpty ? "claude-sonnet" : message.model, version: "2.1.288")
+    }
+
     func locate() async -> String? { "~/.local/bin/claude" }
     func version() async -> String? { "2.1.288" }
 }
